@@ -1,0 +1,69 @@
+#!/bin/bash
+# EC2 user-data for this team's CI runner. Installs Docker (the runner needs it
+# to execute job containers - the reason this component runs on EC2 rather than
+# Fargate, which disallows Docker-in-Docker), installs forgejo-runner, waits for
+# this team's Forgejo instance to have published its registration token to SSM,
+# and runs the runner as a systemd service.
+set -euo pipefail
+
+dnf install -y docker jq >/dev/null
+systemctl enable --now docker
+
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+RUNNER_VERSION=$(curl -s 'https://data.forgejo.org/api/v1/repos/forgejo/runner/releases/latest' | jq -r '.name' | cut -c 2-)
+curl -sL -o /usr/local/bin/forgejo-runner \
+  "https://code.forgejo.org/forgejo/runner/releases/download/v$${RUNNER_VERSION}/forgejo-runner-$${RUNNER_VERSION}-linux-$${ARCH}"
+chmod +x /usr/local/bin/forgejo-runner
+
+SSM_PARAM_NAME="${ssm_param_name}"
+AWS_REGION="${aws_region}"
+FORGEJO_URL="${forgejo_url}"
+TEAM_ID="${team_id}"
+
+echo "Waiting for the runner registration token to be published to SSM..."
+TOKEN=""
+for i in $(seq 1 60); do
+  TOKEN=$(aws ssm get-parameter --name "$SSM_PARAM_NAME" --with-decryption --region "$AWS_REGION" --query 'Parameter.Value' --output text 2>/dev/null || true)
+  if [ -n "$TOKEN" ] && [ "$TOKEN" != "None" ]; then
+    break
+  fi
+  sleep 10
+done
+
+if [ -z "$TOKEN" ] || [ "$TOKEN" = "None" ]; then
+  echo "Timed out waiting for the runner registration token" >&2
+  exit 1
+fi
+
+mkdir -p /etc/forgejo-runner
+cat > /etc/forgejo-runner/config.yaml <<EOF
+runner:
+  labels: ["ubuntu-latest:docker://ubuntu:22.04"]
+
+server:
+  connections:
+    team-$${TEAM_ID}:
+      url: $${FORGEJO_URL}/
+      uuid: $(cat /proc/sys/kernel/random/uuid)
+      token: $${TOKEN}
+EOF
+
+chmod 600 /etc/forgejo-runner/config.yaml
+
+cat > /etc/systemd/system/forgejo-runner.service <<'EOF'
+[Unit]
+Description=Forgejo Actions Runner
+After=docker.service
+Requires=docker.service
+
+[Service]
+ExecStart=/usr/local/bin/forgejo-runner daemon -c /etc/forgejo-runner/config.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now forgejo-runner

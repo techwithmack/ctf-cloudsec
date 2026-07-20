@@ -1,0 +1,9 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+.team_*_public_ip
+.DS_Store
+claude.md
+instructions/
+challenge1.md
