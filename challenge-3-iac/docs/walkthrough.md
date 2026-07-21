@@ -25,11 +25,10 @@ directly, but the workflow's *behavior* is fully visible.
 
 ## 2. Discover the Branch Protection Gap
 
-In the Forgejo UI, check **Settings → Branches** for the repo (or `GET
-/api/v1/repos/<org>/infra/branch_protections` via the API). Only `main` has a protection rule.
-`deploy/*` — exactly the pattern the deploy workflow triggers on — has no rule at all.
-
-Confirm directly:
+A Write-level collaborator (the player's actual access level) cannot view **Settings → Branches**
+or call `GET /api/v1/repos/<org>/infra/branch_protections` — both require Admin permission on the
+repo, which the player does not have. The gap has to be discovered empirically, by testing what
+the server actually allows:
 
 ```bash
 git commit --allow-empty -m "test"

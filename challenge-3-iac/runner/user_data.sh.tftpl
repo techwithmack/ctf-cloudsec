@@ -36,28 +36,35 @@ if [ -z "$TOKEN" ] || [ "$TOKEN" = "None" ]; then
 fi
 
 mkdir -p /etc/forgejo-runner
-cat > /etc/forgejo-runner/config.yaml <<EOF
-runner:
-  labels: ["ubuntu-latest:docker://ubuntu:22.04"]
+cd /etc/forgejo-runner
 
-server:
-  connections:
-    team-$${TEAM_ID}:
-      url: $${FORGEJO_URL}/
-      uuid: $(cat /proc/sys/kernel/random/uuid)
-      token: $${TOKEN}
-EOF
+# The token minted by Forgejo's registration-token API is base64url-encoded (it
+# contains "-" and "_"), which forgejo-runner's `daemon` inline
+# `server.connections.<name>.token` field rejects outright ("token contains
+# invalid characters") - that field expects a runner's own post-registration
+# token, not the one-time registration token. The one-time token must instead
+# be exchanged via `register` (deprecated, but still the only way to perform
+# this exchange), which writes a `.runner` file containing the runner's real
+# persistent token; `daemon` then reads that file with no connection config
+# needed at all. Idempotent: skips re-registering if `.runner` already exists
+# (e.g. after an instance reboot).
+if [ ! -f /etc/forgejo-runner/.runner ]; then
+  /usr/local/bin/forgejo-runner register --no-interactive \
+    --instance "$${FORGEJO_URL}" \
+    --token "$${TOKEN}" \
+    --name "team-$${TEAM_ID}-runner" \
+    --labels "ubuntu-latest:docker://ubuntu:22.04"
+fi
 
-chmod 600 /etc/forgejo-runner/config.yaml
-
-cat > /etc/systemd/system/forgejo-runner.service <<'EOF'
+cat > /etc/systemd/system/forgejo-runner.service <<EOF
 [Unit]
 Description=Forgejo Actions Runner
 After=docker.service
 Requires=docker.service
 
 [Service]
-ExecStart=/usr/local/bin/forgejo-runner daemon -c /etc/forgejo-runner/config.yaml
+WorkingDirectory=/etc/forgejo-runner
+ExecStart=/usr/local/bin/forgejo-runner daemon
 Restart=always
 RestartSec=5
 

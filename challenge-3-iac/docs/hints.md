@@ -6,9 +6,9 @@ But the pipeline still has to decide *when* it's allowed to run with its privile
 Look closely at what triggers it.
 
 **Hint 2:**
-Check the repository's branch protection settings, not just its files. Protecting the branch
-everyone can see (`main`) isn't the same as protecting every branch the CI pipeline actually
-trusts.
+You don't have permission to view the repo's branch protection settings directly — but you don't
+need to. Try pushing to a branch other than `main` and see what the server actually allows, rather
+than assuming every branch is equally protected.
 
 **Hint 3 (most revealing, still no flag):**
 The deploy workflow triggers on pushes to `deploy/*`. If that pattern isn't covered by any branch

@@ -17,6 +17,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -35,6 +39,14 @@ locals {
   repo_name             = "infra"
   ssm_param_name        = "/ctf/challenge3/${var.team_id}/runner-token"
   ssm_param_arn         = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_param_name}"
+
+  # Computed deterministically (not via aws_iam_role.deploy.arn) to avoid a
+  # circular dependency: the Forgejo task needs this ARN as an env var, but the
+  # deploy role's own trust policy depends on the OIDC provider, which in turn
+  # depends on Forgejo already being healthy - a cycle if the task definition
+  # also depended directly on the role resource.
+  deploy_role_name = "shadow-pipeline-deploy-${var.team_id}"
+  deploy_role_arn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.deploy_role_name}"
 }
 
 # ---------------------------------------------------------------------------
@@ -130,7 +142,7 @@ resource "random_password" "player" {
 resource "aws_security_group" "efs_sg" {
   name        = "shadow-pipeline-efs-sg-${var.team_id}"
   vpc_id      = data.aws_vpc.default.id
-  description = "Allow NFS from this team's Forgejo task only"
+  description = "Allow NFS from this Forgejo task only"
 
   ingress {
     from_port       = 2049
@@ -284,7 +296,7 @@ resource "aws_ecs_task_definition" "forgejo" {
       { name = "REPO_NAME", value = local.repo_name },
       { name = "PLAYER_USERNAME", value = "player" },
       { name = "PLAYER_PASSWORD", value = random_password.player.result },
-      { name = "AWS_DEPLOY_ROLE_ARN", value = aws_iam_role.deploy.arn },
+      { name = "AWS_DEPLOY_ROLE_ARN", value = local.deploy_role_arn },
       { name = "FLAG_SECRET_ID", value = aws_secretsmanager_secret.flag.arn },
       { name = "AWS_REGION", value = var.aws_region },
       { name = "SSM_PARAM_NAME", value = local.ssm_param_name },
@@ -369,15 +381,48 @@ resource "aws_route53_record" "forgejo" {
 # ref matching that pattern.
 # ---------------------------------------------------------------------------
 
+# AWS validates an OIDC provider by connecting to its issuer's discovery endpoint
+# at creation time - nothing enforces that Forgejo is actually up and healthy
+# behind the ALB before this resource is created otherwise, so it fails outright
+# ("OpenIdIdpCommunicationError") if it races ahead of the ECS service.
+resource "null_resource" "wait_for_forgejo_healthy" {
+  depends_on = [aws_ecs_service.forgejo]
+
+  triggers = {
+    service = aws_ecs_service.forgejo.id
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -e
+      for i in $(seq 1 60); do
+        STATE=$(aws elbv2 describe-target-health \
+          --target-group-arn "${aws_lb_target_group.forgejo.arn}" \
+          --region "${var.aws_region}" \
+          --query 'TargetHealthDescriptions[0].TargetHealth.State' \
+          --output text 2>/dev/null || echo "")
+        if [ "$STATE" = "healthy" ]; then
+          exit 0
+        fi
+        sleep 10
+      done
+      echo "Timed out waiting for the Forgejo target to become healthy" >&2
+      exit 1
+    EOT
+  }
+}
+
 resource "aws_iam_openid_connect_provider" "forgejo" {
   url            = local.oidc_issuer
   client_id_list = ["sts.amazonaws.com"]
   # thumbprint_list intentionally omitted: the ALB serves a publicly-trusted ACM
   # certificate, so AWS trusts it directly without thumbprint pinning.
+
+  depends_on = [null_resource.wait_for_forgejo_healthy]
 }
 
 resource "aws_iam_role" "deploy" {
-  name = "shadow-pipeline-deploy-${var.team_id}"
+  name = local.deploy_role_name
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -485,6 +530,7 @@ resource "aws_instance" "runner" {
   vpc_security_group_ids      = [aws_security_group.runner_sg.id]
   iam_instance_profile        = aws_iam_instance_profile.runner.name
   associate_public_ip_address = true
+  user_data_replace_on_change = true # user-data only runs on first boot, so a change must force a fresh instance
 
   user_data = templatefile("${path.module}/runner/user_data.sh.tftpl", {
     forgejo_url    = local.forgejo_url
