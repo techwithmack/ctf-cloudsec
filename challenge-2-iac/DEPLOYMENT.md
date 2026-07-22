@@ -9,77 +9,46 @@ see `docs/walkthrough.md`; for image build-only instructions see `forgejo/README
   (`us-west-2`) as Challenge 1.
 - Docker Desktop running (needed once, to build the Forgejo image).
 - Terraform >= 1.0.
-- **A domain you control**, or are willing to register, dedicated to this challenge (e.g.
-  `ctf-shadow-pipeline.<yourtld>`). Every team's Forgejo instance is published at
-  `<team_id>.<that domain>`, and AWS IAM's OIDC federation needs a stable, ongoing-reachable public
-  HTTPS hostname for each team — this is not optional infrastructure, it's load-bearing for the
-  challenge's core mechanic.
+- **A domain you control.** This deployment uses `aikidoctf.com`, registered directly through
+  Route53 Registrar in this same AWS account (so its hosted zone already exists — no delegation
+  step needed). Every team's Forgejo instance is published at `<team_id>.challenge2.aikidoctf.com`,
+  and AWS IAM's OIDC federation needs a stable, ongoing-reachable public HTTPS hostname for each
+  team — this is not optional infrastructure, it's load-bearing for the challenge's core mechanic.
 
 ## 1. Domain & DNS
 
-**Recommended default: delegate a dedicated subdomain, don't touch the domain's main DNS.**
-This works no matter where the domain is registered or where its DNS currently lives (Route53,
-GoDaddy, Cloudflare, Namecheap, whatever) — you're only ever adding one NS delegation record at
-the parent, nothing else about the domain changes, and if anything about the CTF DNS breaks, only
-that one subdomain is affected.
+Two variables control this, kept separate on purpose:
 
-1. Pick a subdomain, e.g. `ctf.yourdomain.com`. Use that as `ctf_domain` everywhere below (it's
-   what `variables.tf` calls `ctf_domain` — it does **not** need to be a bare top-level domain).
-2. Apply bootstrap with the default `create_route53_zone = true`:
-   ```bash
-   cd challenge-2-iac/bootstrap
-   terraform init
-   terraform apply -var="ctf_domain=ctf.yourdomain.com"
-   ```
-   This creates a **new Route53 hosted zone scoped to just that subdomain** and outputs its 4
-   nameservers.
-3. Get those nameservers:
-   ```bash
-   terraform output nameservers
-   ```
-4. Go to wherever `yourdomain.com`'s DNS is managed today (your registrar's DNS panel, or Route53
-   if it's already there, or Cloudflare, etc.) and add **one NS record**:
-   - Name: `ctf` (some UIs want the full `ctf.yourdomain.com` — either way, it's the subdomain, not
-     the apex)
-   - Type: `NS`
-   - Values: the 4 nameserver hostnames from step 3
-5. Wait for propagation — usually minutes, sometimes a couple hours depending on the parent zone's
-   own NS record TTL. Verify with:
-   ```bash
-   dig NS ctf.yourdomain.com
-   ```
-   once it resolves to the 4 Route53 nameservers, you're done — no further DNS action needed. ACM
-   cert validation and every team's `<team_id>.ctf.yourdomain.com` record happen automatically
-   inside that delegated zone from here on.
+- `zone_name` — the Route53 zone that **actually exists** (`aikidoctf.com`). Used only to look up
+  the zone via `data "aws_route53_zone"`.
+- `ctf_domain` — the challenge-level subdomain the wildcard cert and every per-team record are
+  scoped to (`challenge2.aikidoctf.com`). A wildcard cert for `*.aikidoctf.com` would **not** cover
+  `<team_id>.challenge2.aikidoctf.com` (that's two levels down), so `ctf_domain` must be one level
+  below the apex.
 
-**Alternative, if `yourdomain.com`'s DNS is already hosted in Route53 in this same AWS account**
-and you'd rather not create a separate delegated zone: set `-var="create_route53_zone=false"` and
-use the existing zone's name directly as `ctf_domain`. This skips the delegation step (steps 3–5
-above), but every record this challenge creates lands directly in your main zone instead of an
-isolated one — the subdomain-delegation path above is preferable unless you have a specific reason
-not to.
+**Default path — the zone already exists (this deployment's actual setup):** set
+`create_route53_zone = false` (the default) and just pass both variables. No delegation, no NS
+records, nothing to wait on — records for `challenge2.aikidoctf.com` land straight in the
+`aikidoctf.com` zone.
+
+**Alternative, if you're deploying against a domain whose zone doesn't exist yet in this account:**
+set `-var="create_route53_zone=true"` and `zone_name` = the new zone's name. After apply, run
+`terraform output nameservers` and set those as the domain's nameservers at your registrar (or add
+an NS delegation record at the parent if `zone_name` itself is a subdomain of something you manage
+elsewhere). DNS propagation can take minutes to a few hours — do this early if you're on a deadline.
 
 ## 2. Apply the bootstrap stack (once, shared across all teams)
 
 ```bash
 cd challenge-2-iac/bootstrap
 terraform init
-terraform apply -var="ctf_domain=<your-domain>"
+terraform apply -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
 ```
 
-This creates: the Route53 zone (if new), a wildcard ACM cert (`*.<your-domain>`, DNS-validated
-automatically since Terraform owns the zone), a shared ALB with an HTTPS listener, and the shared
-ECR repo for the Forgejo image. Takes a few minutes — ACM DNS validation and the ALB provisioning
-are the slow parts.
-
-**If you registered a brand-new domain (path A):** after apply, run:
-
-```bash
-terraform output nameservers
-```
-
-and set those as the domain's nameservers at your registrar. DNS propagation can take anywhere
-from minutes to a few hours — do this early if you're on a deadline.
+This creates: the Route53 zone (only if `create_route53_zone=true`), a wildcard ACM cert
+(`*.challenge2.aikidoctf.com`, DNS-validated automatically since the zone is in this account), a
+shared ALB with an HTTPS listener, and the shared ECR repo for the Forgejo image. Takes a few
+minutes — ACM DNS validation and the ALB provisioning are the slow parts.
 
 ## 3. Build and push the Forgejo image (once)
 
@@ -102,7 +71,7 @@ since the ECS task definition expects amd64 and there's no `runtime_platform` ov
 ```bash
 cd challenge-2-iac
 terraform init
-terraform apply -var="team_id=<team>" -var="ctf_domain=<your-domain>"
+terraform apply -var="team_id=<team>" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
 ```
 
 This takes longer than Challenge 1's apply — an EFS mount target and the ALB listener rule/target
@@ -121,8 +90,8 @@ terraform output player_password     # sensitive - terraform output -raw player_
 
 ## 5. Verify before handing off to a team
 
-1. `curl -sI https://<team_id>.<your-domain>/` — expect a `200` once DNS has propagated and the
-   ALB target is healthy.
+1. `curl -sI https://<team_id>.challenge2.aikidoctf.com/` — expect a `200` once DNS has propagated
+   and the ALB target is healthy.
 2. Log into Forgejo with the `player` credentials, confirm the one `infra` repo is visible with
    Write access.
 3. Check **Settings → Branches** on that repo — `main` should show a protection rule, `deploy/*`
@@ -153,14 +122,14 @@ Per team:
 
 ```bash
 cd challenge-2-iac
-terraform destroy -var="team_id=<team>" -var="ctf_domain=<your-domain>"
+terraform destroy -var="team_id=<team>" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
 ```
 
 Whole event, once all teams are torn down:
 
 ```bash
 cd challenge-2-iac/bootstrap
-terraform destroy -var="ctf_domain=<your-domain>"
+terraform destroy -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
 ```
 
 (Only do this once no per-team stack still references the shared ALB/zone/ECR repo — destroying

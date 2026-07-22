@@ -9,9 +9,14 @@ variable "team_id" {
   description = "Unique identifier for the team/player to enforce strict multi-tenant isolation."
 }
 
+variable "zone_name" {
+  type        = string
+  description = "The same zone_name used when applying challenge-2-iac/bootstrap (e.g. \"aikidoctf.com\") - the Route53 zone that actually exists."
+}
+
 variable "ctf_domain" {
   type        = string
-  description = "The same dedicated domain used when applying challenge-2-iac/bootstrap. This team's Forgejo instance is published at <team_id>.<ctf_domain>."
+  description = "The same dedicated subdomain used when applying challenge-2-iac/bootstrap (e.g. \"challenge2.aikidoctf.com\"). This team's Forgejo instance is published at <team_id>.<ctf_domain>."
 }
 
 variable "runner_instance_type" {

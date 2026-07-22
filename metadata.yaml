@@ -3,7 +3,7 @@ category: Cloud Infrastructure / Storage
 difficulty: Low
 author: Aikido Security
 points: 100
-entrypoint: http://<per-team-entrypoint-ip>
+entrypoint: https://<team_id>.<ctf_domain>
 flag_format: FLAG-{32hexadecimal/alphanumeric}
 estimated_solve_time: 20m
 expected_steps: 3

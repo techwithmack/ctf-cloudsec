@@ -1,5 +1,5 @@
 # Challenge 2 per-team stack. Applied once per team via
-# `terraform apply -var="team_id=<team>" -var="ctf_domain=<domain>"`, AFTER
+# `terraform apply -var="team_id=<team>" -var="zone_name=<zone>" -var="ctf_domain=<domain>"`, AFTER
 # challenge-2-iac/bootstrap/ has been applied once (shared ALB, ACM cert, Route53
 # zone, ECR repo - all referenced here read-only via data sources, never created,
 # for the same reason Challenge 1 looks up its ECR repo as a data source: a
@@ -90,12 +90,12 @@ data "aws_lb_listener" "shared_https" {
 data "aws_security_group" "alb_sg" {
   filter {
     name   = "group-name"
-    values = ["shadow-pipeline-alb-sg"]
+    values = ["shadow-pipeline-alb-sg-*"]
   }
 }
 
 data "aws_route53_zone" "ctf" {
-  name = var.ctf_domain
+  name = var.zone_name
 }
 
 data "aws_ecr_repository" "forgejo" {

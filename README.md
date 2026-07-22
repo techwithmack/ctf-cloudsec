@@ -36,7 +36,7 @@ Cross-checked against `instructions/Requirements - Sponsor's CTF Challenges (1).
 | Required deliverables (description, entry point, IaC, Dockerfiles, images, architecture diagram, walkthrough, hints, learning objectives, YAML metadata) | All present per challenge under `docs/` and `challenge-2-iac/docs/` respectively — see the file maps below. |
 | Hints: progressive, don't reveal the flag, pre-written | 3 hints per challenge, each escalating without stating the flag (`docs/hints.md`, `challenge-2-iac/docs/hints.md`). |
 | YAML metadata fields (name, category, difficulty, points, entrypoint, flag_format, estimated_solve_time, expected_steps, tags, player_isolation, deployment_type, hint_count) | Both `metadata.yaml` files carry every field, including `expected_steps` (3 and 4 respectively). |
-| Walkthrough must cover enumeration, commands, outputs, solve path, flag retrieval, tooling, unintended paths, reset procedure, rate-limiting | Covered in both `docs/walkthrough.md` files — including reset (`terraform destroy && apply` re-rolls the flag) and known operational caveats (Challenge 1's public-IP staleness on task restart; Challenge 2's shared-state-file caveat when scaling to multiple teams). |
+| Walkthrough must cover enumeration, commands, outputs, solve path, flag retrieval, tooling, unintended paths, reset procedure, rate-limiting | Covered in both `docs/walkthrough.md` files — including reset (`terraform destroy && apply` re-rolls the flag) and the shared-local-state-file caveat when scaling to multiple concurrent teams (see "The one operational sharp edge" below). |
 | Legal/safety restrictions | No outbound attacks on third parties, no crypto mining, no cross-team blast radius — the deploy role in Challenge 2 is scoped to read exactly one Secrets Manager secret, nothing account-wide. |
 
 One naming note worth flagging: the CI/CD challenge is called "Challenge 3" in this repo's
@@ -70,10 +70,13 @@ create the same object twice (a container image repo, a domain's DNS zone, a loa
 challenges solve this the same way — provision that shared piece **once, out-of-band**, and have
 every per-team stack reference it as a **read-only data source**, never as a `resource`:
 
-- **Challenge 1:** one shared ECR repo (`aikido-ctf-flawed-blueprint`), built and pushed once (see
-  `app/README.md`), looked up via `data "aws_ecr_repository"`. The same container image runs for
-  every team — it's generic, and gets team-specific behavior purely from environment variables
-  (`TEAM_ID`, `TARGET_BUCKET_URL`) injected by that team's ECS task definition.
+- **Challenge 1:** a shared `bootstrap/` stack (`bootstrap/main.tf`, applied once for the whole
+  event) provisions the same trio Challenge 2 does — a Route53 zone lookup, a wildcard ACM cert for
+  `*.challenge1.aikidoctf.com`, and one shared ALB — plus the shared ECR repo (`aikido-ctf-flawed-blueprint`,
+  built and pushed once, see `app/README.md`). The per-team stack (`main.tf`) looks up all of these
+  read-only and adds only its own host-header listener rule (`<team_id>.challenge1.aikidoctf.com`)
+  and DNS record. The container image itself is generic — it gets team-specific behavior purely from
+  environment variables (`TEAM_ID`, `TARGET_BUCKET_URL`) injected by that team's ECS task definition.
 - **Challenge 2:** a whole shared "bootstrap" stack (`challenge-2-iac/bootstrap/`), applied once
   for the entire event, before any team's stack: the Route53 zone for the CTF domain, a wildcard
   ACM cert (`*.<ctf_domain>`), one shared ALB with an HTTPS listener, and the shared ECR repo for
@@ -89,8 +92,8 @@ comments: a per-team-applied stack can safely *reference* a shared object, but i
 ### What "isolated" actually buys a team, concretely
 
 - **Challenge 1:** each team gets its own bucket, its own Fargate task, its own IAM execution role,
-  its own security group. A team can misconfigure or even delete its own bucket without touching
-  any other team's.
+  its own security group, its own ALB target group/listener rule/DNS record. A team can misconfigure
+  or even delete its own bucket without touching any other team's.
 - **Challenge 2:** each team gets its own Forgejo instance (own SQLite DB on its own EFS volume, own
   org/repo/player account), its own EC2 CI runner, its own IAM OIDC provider, and its own deploy
   role. Critically, the OIDC trust policy's `sub` condition is scoped to that team's own
@@ -117,6 +120,25 @@ docs call this out and recommend a `terraform workspace` per team, or a distinct
 S3 backend with `-backend-config="key=team-<id>/terraform.tfstate"`) once scaling past one or two
 teams at once.
 
+### Domain: `aikidoctf.com`
+
+Both challenges are published under one real domain registered through Route53 (`aikidoctf.com`),
+rather than raw IPs — internal portals in the wild are never bare IPs, and it avoids Fargate's lack
+of a stable per-task address. Each challenge gets its own subdomain, wildcard-certed one level down
+so per-team third-level hosts are covered:
+
+- Challenge 1: `<team_id>.challenge1.aikidoctf.com` (wildcard cert `*.challenge1.aikidoctf.com`,
+  provisioned by `bootstrap/`)
+- Challenge 2: `<team_id>.challenge2.aikidoctf.com` (wildcard cert `*.challenge2.aikidoctf.com`,
+  provisioned by `challenge-2-iac/bootstrap/`)
+
+Both bootstrap stacks take a `zone_name` (the zone that actually exists — `aikidoctf.com`) separate
+from `ctf_domain` (the challenge-level subdomain the cert/ALB are scoped to) — `zone_name` locates
+the Route53 zone via `data "aws_route53_zone"`, while `ctf_domain` names the wildcard cert and every
+per-team DNS record created inside that zone. A wildcard cert for `*.aikidoctf.com` would **not**
+cover `<team_id>.challenge1.aikidoctf.com` (that's two levels down) — hence one wildcard cert per
+challenge subdomain rather than one at the apex.
+
 ---
 
 ## Challenge 1: The Flawed Blueprint
@@ -132,7 +154,7 @@ anyone on the internet can enumerate and read, no AWS credentials required anywh
 path.
 
 **Attack chain:**
-1. Player is handed `http://<team-public-ip>/`.
+1. Player is handed `https://<team_id>.challenge1.aikidoctf.com/`.
 2. Viewing the page's HTML source reveals an HTML comment: `<!-- TODO: remove before prod - forgotten backup bucket still wired up here: {TARGET_BUCKET_URL} -->`.
 3. `aws s3 ls s3://aikido-ctf-blueprint-backup-<team_id> --no-sign-request` — lists `prod_backup_config.toml`.
 4. `aws s3 cp s3://.../prod_backup_config.toml . --no-sign-request` — downloads it.
@@ -142,8 +164,9 @@ path.
 
 | File | Role |
 |---|---|
-| `variables.tf` | `aws_region` (fixed `us-west-2`), `team_id` |
-| `main.tf` | Bucket + policy (the vuln), flag generation, ECS/Fargate entry-point hosting, public-IP fetch workaround |
+| `bootstrap/variables.tf`, `bootstrap/main.tf` | Shared, event-wide: Route53 zone lookup, wildcard ACM cert for `*.challenge1.aikidoctf.com`, shared ALB — applied once |
+| `variables.tf` | `aws_region` (fixed `us-west-2`), `team_id`, `zone_name`, `ctf_domain` |
+| `main.tf` | Bucket + policy (the vuln), flag generation, ECS/Fargate entry-point hosting, ALB host-header routing + DNS record |
 | `app/app.py`, `app/Dockerfile` | Entry-point Flask app leaking the bucket URL; built once, pushed to the shared ECR repo |
 | `app/README.md` | One-time ECR bootstrap instructions |
 | `metadata.yaml` | Submission metadata |

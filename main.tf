@@ -5,19 +5,41 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    null = {
-      source  = "hashicorp/null"
-      version = "~> 3.0"
-    }
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.0"
-    }
   }
 }
 
 provider "aws" {
   region = var.aws_region
+}
+
+locals {
+  entrypoint_hostname = "${var.team_id}.${var.ctf_domain}"
+  entrypoint_url      = "https://${local.entrypoint_hostname}"
+}
+
+# ---------------------------------------------------------------------------
+# Shared bootstrap resources, looked up read-only (see bootstrap/main.tf -
+# applied once for the whole event, before any team's stack).
+# ---------------------------------------------------------------------------
+
+data "aws_lb" "shared" {
+  name = "flawed-blueprint-alb"
+}
+
+data "aws_lb_listener" "shared_https" {
+  load_balancer_arn = data.aws_lb.shared.arn
+  port              = 443
+}
+
+data "aws_security_group" "alb_sg" {
+  filter {
+    name   = "group-name"
+    values = ["flawed-blueprint-alb-sg-*"]
+  }
+}
+
+data "aws_route53_zone" "ctf" {
+  name = var.zone_name
 }
 
 # 1. Create the S3 Bucket with a uniquely isolated name per team
@@ -186,17 +208,18 @@ data "aws_subnets" "default" {
   }
 }
 
-# Security group allowing public internet access to the entry point container on port 80
+# Security group allowing traffic to the entry point container only from the
+# shared ALB (see bootstrap/main.tf) - the ALB is the only public-facing surface.
 resource "aws_security_group" "container_sg" {
   name        = "aikido-ctf-container-sg-${var.team_id}"
   vpc_id      = data.aws_vpc.default.id
-  description = "Allow HTTP access to CTF entry point"
+  description = "Allow HTTP from the shared ALB only"
 
   ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [data.aws_security_group.alb_sg.id]
   }
 
   egress {
@@ -207,7 +230,42 @@ resource "aws_security_group" "container_sg" {
   }
 }
 
-# 9. ECS Service to keep the container running and accessible
+# 9. Per-team target group + host-header listener rule on the shared ALB.
+resource "aws_lb_target_group" "app" {
+  name        = "blueprint-tg-${var.team_id}"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = data.aws_vpc.default.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 10
+    healthy_threshold   = 2
+    unhealthy_threshold = 5
+  }
+}
+
+# priority intentionally omitted: AWS assigns the next free priority on this
+# shared listener at apply time, so independent per-team applies never collide.
+resource "aws_lb_listener_rule" "app" {
+  listener_arn = data.aws_lb_listener.shared_https.arn
+
+  condition {
+    host_header {
+      values = [local.entrypoint_hostname]
+    }
+  }
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+# 10. ECS Service to keep the container running and registered with the ALB.
 resource "aws_ecs_service" "entrypoint_service" {
   name            = "entrypoint-service-${var.team_id}"
   cluster         = aws_ecs_cluster.ctf_cluster.id
@@ -218,64 +276,32 @@ resource "aws_ecs_service" "entrypoint_service" {
   network_configuration {
     subnets          = data.aws_subnets.default.ids
     security_groups  = [aws_security_group.container_sg.id]
-    assign_public_ip = true
+    assign_public_ip = true # needed for egress (ECR pull) via IGW in the default public subnets - inbound is still SG-gated to the ALB only
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.app.arn
+    container_name   = "entrypoint-app"
+    container_port   = 80
+  }
+
+  depends_on = [aws_lb_listener_rule.app]
+}
+
+# 11. DNS record and output for the public endpoint the player will navigate to.
+resource "aws_route53_record" "app" {
+  zone_id = data.aws_route53_zone.ctf.zone_id
+  name    = local.entrypoint_hostname
+  type    = "A"
+
+  alias {
+    name                   = data.aws_lb.shared.dns_name
+    zone_id                = data.aws_lb.shared.zone_id
+    evaluate_target_health = true
   }
 }
 
-# 10. Fetch the running Fargate task's public IP.
-#
-# A single Fargate task behind an aws_ecs_service has no Terraform-native stable
-# IP/DNS attribute (the task ENI is assigned dynamically by ECS, outside Terraform's
-# direct visibility). For a low-difficulty, single-task, 20-minute challenge this
-# local-exec + AWS CLI poll is simpler and cheaper than standing up a per-team ALB.
-#
-# Known limitation: if the underlying task ever restarts, the public IP changes and
-# this output goes stale until Terraform is re-applied. Acceptable here — see the
-# "Stability & Rate Limiting" note in docs/walkthrough.md.
-resource "null_resource" "fetch_public_ip" {
-  depends_on = [aws_ecs_service.entrypoint_service]
-
-  triggers = {
-    service = aws_ecs_service.entrypoint_service.id
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      set -e
-      CLUSTER="${aws_ecs_cluster.ctf_cluster.name}"
-      SERVICE="${aws_ecs_service.entrypoint_service.name}"
-      REGION="${var.aws_region}"
-      OUTFILE="${path.module}/.team_${var.team_id}_public_ip"
-
-      for i in $(seq 1 20); do
-        TASK_ARN=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$SERVICE" --region "$REGION" --query 'taskArns[0]' --output text)
-        if [ "$TASK_ARN" != "None" ] && [ -n "$TASK_ARN" ]; then
-          STATUS=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$REGION" --query 'tasks[0].lastStatus' --output text)
-          if [ "$STATUS" = "RUNNING" ]; then
-            ENI_ID=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$REGION" --query "tasks[0].attachments[0].details[?name=='networkInterfaceId'].value" --output text)
-            PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --region "$REGION" --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
-            if [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "None" ]; then
-              echo "$PUBLIC_IP" > "$OUTFILE"
-              exit 0
-            fi
-          fi
-        fi
-        sleep 6
-      done
-
-      echo "Timed out waiting for task public IP" >&2
-      exit 1
-    EOT
-  }
-}
-
-data "local_file" "public_ip" {
-  depends_on = [null_resource.fetch_public_ip]
-  filename   = "${path.module}/.team_${var.team_id}_public_ip"
-}
-
-# 11. Output the public endpoint the player will navigate to
 output "entrypoint_url" {
-  value       = "http://${trimspace(data.local_file.public_ip.content)}"
+  value       = local.entrypoint_url
   description = "The target endpoint URL where players begin their initial enumeration."
 }

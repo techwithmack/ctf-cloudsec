@@ -1,13 +1,16 @@
-# Challenge 2 shared bootstrap — apply this ONCE, before any team's per-team stack
-# (challenge-2-iac/main.tf) is applied. Every resource here is referenced back by the
-# per-team stack via data sources (never created there), the same pattern Challenge 1
-# uses for its shared ECR repo: a per-team-applied stack cannot safely *create* a
-# resource that every other team's separate apply would also try to create.
+# Challenge 1 shared bootstrap - apply this ONCE, before any team's per-team stack
+# (main.tf) is applied. Every resource here is referenced back by the per-team
+# stack via data sources (never created there) - the same reasoning as Challenge
+# 2's bootstrap/: a per-team-applied stack cannot safely *create* a resource that
+# every other team's separate apply would also try to create.
 #
-# Provisions: the Route53 zone for the CTF domain, a wildcard ACM cert for
-# *.<ctf_domain>, one shared Application Load Balancer (teams are distinguished by
-# per-team host-header listener rules, not per-team ALBs), and the shared ECR repo
-# for the custom Forgejo image.
+# Provisions: the Route53 zone lookup for the CTF domain, a wildcard ACM cert for
+# *.<ctf_domain>, and one shared Application Load Balancer (teams are
+# distinguished by per-team host-header listener rules, not per-team ALBs).
+#
+# Deliberately does NOT provision the entry-point ECR repo - that's a one-time,
+# out-of-band `aws ecr create-repository` + `docker push` (see app/README.md),
+# looked up read-only by main.tf via `data "aws_ecr_repository"`, same as before.
 
 terraform {
   required_version = ">= 1.0.0"
@@ -25,7 +28,7 @@ provider "aws" {
 
 # 1. Route53 hosted zone. zone_name is the apex domain that actually exists in
 # Route53 (e.g. "aikidoctf.com"); ctf_domain (used below for the cert/ALB) may be
-# that same apex or a subdomain of it (e.g. "challenge2.aikidoctf.com") - either
+# that same apex or a subdomain of it (e.g. "challenge1.aikidoctf.com") - either
 # way, records for ctf_domain get created inside this zone.
 resource "aws_route53_zone" "ctf" {
   count = var.create_route53_zone ? 1 : 0
@@ -41,9 +44,8 @@ locals {
   zone_id = var.create_route53_zone ? aws_route53_zone.ctf[0].zone_id : data.aws_route53_zone.ctf[0].zone_id
 }
 
-# 2. Wildcard ACM certificate for *.<ctf_domain>, DNS-validated automatically since we
-# own the zone above. A publicly-trusted CA cert here means AWS's IAM OIDC provider
-# (created per-team) can trust the issuer directly without thumbprint pinning.
+# 2. Wildcard ACM certificate for *.<ctf_domain>, DNS-validated automatically since
+# we own the zone above.
 resource "aws_acm_certificate" "wildcard" {
   domain_name       = "*.${var.ctf_domain}"
   validation_method = "DNS"
@@ -89,10 +91,10 @@ resource "aws_security_group" "alb_sg" {
   # to the live shared ALB, so any future change that forces replacement (e.g.
   # editing description) must create the replacement and re-point the ALB at it
   # before the old one is destroyed - otherwise AWS refuses the delete with
-  # DependencyViolation (found by live testing).
-  name_prefix = "shadow-pipeline-alb-sg-"
+  # DependencyViolation (found by live testing on Challenge 2's identical setup).
+  name_prefix = "flawed-blueprint-alb-sg-"
   vpc_id      = data.aws_vpc.default.id
-  description = "Allow public HTTP/HTTPS to the shared Challenge 2 ALB"
+  description = "Allow public HTTP/HTTPS to the shared Challenge 1 ALB"
 
   ingress {
     from_port   = 80
@@ -121,7 +123,7 @@ resource "aws_security_group" "alb_sg" {
 }
 
 resource "aws_lb" "shared" {
-  name               = "shadow-pipeline-alb"
+  name               = "flawed-blueprint-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
@@ -145,8 +147,8 @@ resource "aws_lb_listener" "http_redirect" {
 }
 
 # Default action here returns a plain 404. Per-team host-header rules (added by
-# challenge-2-iac/main.tf) take priority over this default and route each
-# team<id>.<ctf_domain> hostname to that team's Forgejo target group.
+# main.tf) take priority over this default and route each
+# team<id>.<ctf_domain> hostname to that team's entry-point target group.
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.shared.arn
   port              = 443
@@ -163,13 +165,6 @@ resource "aws_lb_listener" "https" {
       status_code  = "404"
     }
   }
-}
-
-# 4. Shared ECR repository for the custom Forgejo bootstrap image (built/pushed once,
-# looked up read-only by the per-team stack — see challenge-2-iac/forgejo/README.md).
-resource "aws_ecr_repository" "forgejo" {
-  name         = "shadow-pipeline-forgejo"
-  force_delete = true
 }
 
 output "alb_security_group_id" {
@@ -194,10 +189,6 @@ output "https_listener_arn" {
 
 output "route53_zone_id" {
   value = local.zone_id
-}
-
-output "ecr_repository_url" {
-  value = aws_ecr_repository.forgejo.repository_url
 }
 
 output "nameservers" {

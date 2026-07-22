@@ -8,10 +8,11 @@
 
 ## 1. Enumerate the Entry Point
 
-Navigate to the entry point URL given to your team (the `entrypoint_url` Terraform output).
+Navigate to the entry point URL given to your team (the `entrypoint_url` Terraform output, e.g.
+`https://<team_id>.challenge1.aikidoctf.com`).
 
 ```bash
-curl -s http://<entrypoint-ip>/
+curl -s https://<team_id>.challenge1.aikidoctf.com/
 ```
 
 Expected output — an HTML page for an "Aikido Internal Developer Portal," including an HTML
@@ -72,12 +73,13 @@ required `FLAG-{32hexadecimal}` format.
 
 ## Reset Procedures
 
-Each team's infrastructure is an independent Terraform stack keyed by `team_id`. To reset a team's
-environment:
+Each team's infrastructure is an independent Terraform stack keyed by `team_id`, applied against
+the shared `bootstrap/` stack (Route53 zone lookup, wildcard ACM cert, shared ALB — applied once
+for the whole event). To reset a team's environment:
 
 ```bash
-terraform destroy -var="team_id=<team_id>" -var="aws_region=us-west-2"
-terraform apply   -var="team_id=<team_id>" -var="aws_region=us-west-2"
+terraform destroy -var="team_id=<team_id>" -var="aws_region=us-west-2" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge1.aikidoctf.com"
+terraform apply   -var="team_id=<team_id>" -var="aws_region=us-west-2" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge1.aikidoctf.com"
 ```
 
 - The S3 bucket has `force_destroy = true`, so `terraform destroy` cleans it up (including the
@@ -89,13 +91,11 @@ terraform apply   -var="team_id=<team_id>" -var="aws_region=us-west-2"
 
 - Each team runs a single Fargate task (no autoscaling) — sufficient for one team's traffic at
   low-difficulty scale, but not designed for load beyond a handful of concurrent requests per team.
-- The `entrypoint_url` output is resolved once at `apply` time via a scripted AWS CLI lookup of the
-  task's public IP (see `main.tf`, `null_resource.fetch_public_ip`), since Fargate tasks behind an
-  ECS service have no Terraform-native stable address. **If the underlying task restarts for any
-  reason** (e.g., an AZ event or manual `--force-new-deployment`), its public IP changes and the
-  previously-shared `entrypoint_url` goes stale until the stack is re-applied. Operationally: if a
-  team reports the portal is unreachable mid-event, re-run `terraform apply` for that `team_id` to
-  refresh the output before assuming the challenge itself is broken.
+- The entry point is fronted by a shared ALB (`bootstrap/main.tf`), with each team distinguished by
+  a host-header listener rule (`<team_id>.challenge1.aikidoctf.com`) and its own target group —
+  not by a raw task IP. If the underlying Fargate task restarts for any reason, ECS re-registers
+  the replacement task's new IP with the same target group automatically; `entrypoint_url` never
+  goes stale, unlike the earlier raw-public-IP approach.
 - `aws s3 ls` / `aws s3 cp --no-sign-request` are unauthenticated and subject to standard S3
   request-rate behavior; no additional rate limiting is configured or expected to be needed at this
   challenge's traffic scale.
