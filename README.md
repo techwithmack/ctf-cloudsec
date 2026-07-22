@@ -118,7 +118,7 @@ and a fresh `apply` afterward re-rolls that team a brand-new flag.
 
 ## Challenge 1: The Flawed Blueprint
 
-*Deep technical explainer: [challenge1.md](challenge1.md)*
+*Deep technical explainer: [challenge1.md](challenge1.md) — Step-by-step solve walkthrough: [docs/walkthrough.md](docs/walkthrough.md)*
 
 **Scenario:** Meridian Systems' platform team pushed a "quick backup" of production config to cloud storage
 during a migration and never cleaned it up. An internal developer portal still references the
@@ -157,7 +157,7 @@ path.
 
 ## Challenge 2: The Shadow Pipeline Overlord
 
-*Deep technical explainer: [challenge2.md](challenge2.md)*
+*Deep technical explainer: [challenge2.md](challenge2.md) — Step-by-step solve walkthrough: [challenge-2-iac/docs/walkthrough.md](challenge-2-iac/docs/walkthrough.md)*
 
 **Scenario:** Meridian Systems' platform team runs a self-hosted Forgejo instance. Players start with a
 low-privileged `player` account holding **Write** access to exactly one repo (`infra`), which holds
