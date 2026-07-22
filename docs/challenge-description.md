@@ -8,7 +8,7 @@
 
 ## Scenario
 
-Aikido's platform team pushed a "quick backup" of some production configuration to cloud storage
+Meridian Systems' platform team pushed a "quick backup" of some production configuration to cloud storage
 during an infrastructure migration — and never cleaned it up. The internal developer portal that
 was supposed to reference it temporarily is still live, and it still points at the forgotten
 bucket.

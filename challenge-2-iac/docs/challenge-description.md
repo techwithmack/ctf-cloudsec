@@ -9,7 +9,7 @@ IAM trust relationship
 
 ## Scenario
 
-Aikido's platform team runs its own self-hosted Git and CI/CD platform. You've been given
+Meridian Systems' platform team runs its own self-hosted Git and CI/CD platform. You've been given
 low-privileged access to it — a single collaborator account on one repository, "infra," which
 contains the deployment pipeline for a production service.
 

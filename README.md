@@ -120,7 +120,7 @@ and a fresh `apply` afterward re-rolls that team a brand-new flag.
 
 *Deep technical explainer: [challenge1.md](challenge1.md)*
 
-**Scenario:** Aikido's platform team pushed a "quick backup" of production config to cloud storage
+**Scenario:** Meridian Systems' platform team pushed a "quick backup" of production config to cloud storage
 during a migration and never cleaned it up. An internal developer portal still references the
 forgotten bucket.
 
@@ -159,7 +159,7 @@ path.
 
 *Deep technical explainer: [challenge2.md](challenge2.md)*
 
-**Scenario:** Aikido's platform team runs a self-hosted Forgejo instance. Players start with a
+**Scenario:** Meridian Systems' platform team runs a self-hosted Forgejo instance. Players start with a
 low-privileged `player` account holding **Write** access to exactly one repo (`infra`), which holds
 a deploy pipeline that assumes an AWS IAM role via OIDC — no static AWS credentials exist anywhere
 in the CI system.
