@@ -2,7 +2,7 @@
 
 This is the internal technical explainer for how the challenge is built and how the flag flows
 from Terraform to the player. For the player-facing writeup, hints, and grading metadata, see
-`docs/`. This file is about the mechanics underneath.
+`challenge-1-iac/docs/`. This file is about the mechanics underneath.
 
 ## The one-sentence version
 
@@ -13,11 +13,12 @@ credentials required anywhere in the solve path.
 
 ## Per-team isolation model
 
-Every resource name in `main.tf` is suffixed with `var.team_id` (e.g.
+Every resource name in `challenge-1-iac/main.tf` is suffixed with `var.team_id` (e.g.
 `aikido-ctf-blueprint-backup-${var.team_id}`, `aikido-ctf-cluster-${var.team_id}`). That means this
 whole `main.tf` is a **template applied once per team**, via its own Terraform workspace:
 
 ```bash
+cd challenge-1-iac
 terraform workspace new team007   # or `select` if it already exists
 terraform apply \
   -var="team_id=team007" \
@@ -28,9 +29,9 @@ terraform apply \
 Each invocation creates a fully independent set of resources for that team — its own bucket, its
 own ECS cluster/service/task, its own IAM role, its own security group, its own ALB routing rule
 and DNS record. Teams cannot see or affect each other's resources; the only things shared across
-all teams are read-only lookups against the event-wide `bootstrap/` stack (the ALB, the ACM cert,
-the Route53 zone) and the container **image** sitting in ECR — none of which any team's stack ever
-creates itself.
+all teams are read-only lookups against the event-wide `challenge-1-iac/bootstrap/` stack (the
+ALB, the ACM cert, the Route53 zone) and the container **image** sitting in ECR — none of which
+any team's stack ever creates itself.
 
 ## What gets built, and why
 
@@ -60,7 +61,7 @@ creates itself.
 - **Resetting a team** (`terraform destroy` + `apply` again) generates a brand-new `random_id`, so
   the old flag stops working the moment the stack is destroyed.
 
-### 3. The entry-point app (`app/app.py`, `app/Dockerfile`, run via ECS Fargate)
+### 3. The entry-point app (`challenge-1-iac/app/app.py`, `challenge-1-iac/app/Dockerfile`, run via ECS Fargate)
 
 - The Flask app has exactly one route (`/`). It reads two environment variables —
   `TEAM_ID` and `TARGET_BUCKET_URL` — that the ECS task definition injects per team, and renders a
@@ -73,9 +74,10 @@ creates itself.
   browser view-source) instead of only looking at the rendered page.
 - The image is built and pushed to a **single shared ECR repository**
   (`aikido-ctf-flawed-blueprint`) once, out-of-band, before any team deploys — see
-  `app/README.md`. `main.tf` looks this repository up via `data "aws_ecr_repository"` (read-only),
-  not a resource, specifically because a `resource` would try to *create* the repo again on every
-  team's separate `apply` and fail with "already exists" starting from the second team.
+  `challenge-1-iac/app/README.md`. `main.tf` looks this repository up via `data
+  "aws_ecr_repository"` (read-only), not a resource, specifically because a `resource` would try to
+  *create* the repo again on every team's separate `apply` and fail with "already exists" starting
+  from the second team.
 - `aws_ecs_task_definition.entrypoint_task` wires up the container: pulls the shared image, exposes
   port 80, and injects `TEAM_ID` / the team's actual bucket URL
   (`aws_s3_bucket.leaky_bucket.bucket_regional_domain_name`) as environment variables — so the same
@@ -92,9 +94,9 @@ earlier version of this challenge worked around that with a `local-exec` provisi
 the AWS CLI for the task's public IP; that approach is gone now in favor of routing every team
 through one shared Application Load Balancer, the same pattern Challenge 2 already used:
 
-- A separate, event-wide **`bootstrap/`** stack (applied once, before any team) provisions:
-  a Route53 zone lookup for `aikidoctf.com`, a wildcard ACM cert for `*.challenge1.aikidoctf.com`,
-  and one shared ALB (`flawed-blueprint-alb`) with an HTTPS listener.
+- A separate, event-wide **`challenge-1-iac/bootstrap/`** stack (applied once, before any team)
+  provisions: a Route53 zone lookup for `aikidoctf.com`, a wildcard ACM cert for
+  `*.challenge1.aikidoctf.com`, and one shared ALB (`flawed-blueprint-alb`) with an HTTPS listener.
 - Each team's own `main.tf` looks all of that up read-only (`data "aws_lb"`, `data
   "aws_lb_listener"`, `data "aws_route53_zone"`, `data "aws_security_group"`) and adds only:
   - its own target group (`aws_lb_target_group.app`), which the ECS service registers into via its
@@ -110,9 +112,9 @@ through one shared Application Load Balancer, the same pattern Challenge 2 alrea
   if the underlying Fargate task ever gets replaced, ECS re-registers the new task's IP with the
   same target group automatically, and the team's URL/DNS record never change.
 
-**Operational note:** this means Challenge 1 now depends on `bootstrap/` having been applied first
-(same as Challenge 2 already did) — see the root `README.md`'s "Team structure & isolation" section
-for the shared-vs-per-team split in more detail.
+**Operational note:** this means Challenge 1 depends on `challenge-1-iac/bootstrap/` having been
+applied first (same as Challenge 2) — see the root `README.md`'s "Team isolation" section for the
+shared-vs-per-team split in more detail.
 
 ## The full attack chain, end to end
 
@@ -134,15 +136,15 @@ download → read), which is exactly what a "Low" difficulty, 20-minute challeng
 
 | File | Role |
 |---|---|
-| `bootstrap/variables.tf`, `bootstrap/main.tf` | Shared, event-wide: Route53 zone lookup, wildcard ACM cert for `*.challenge1.aikidoctf.com`, shared ALB — applied once |
-| `variables.tf` | `aws_region` (fixed to `us-west-2`), `team_id`, `zone_name`, `ctf_domain` |
-| `main.tf` | Bucket + policy (the vuln), flag generation, ECS/Fargate app hosting, ALB target group/listener rule, DNS record |
-| `app/app.py` | The entry-point Flask app that leaks the bucket URL |
-| `app/Dockerfile` | Builds the app into the image referenced by the ECS task |
-| `app/README.md` | One-time ECR bootstrap instructions (build/push before any team deploys) |
-| `metadata.yaml` | Submission metadata (name, category, difficulty, flag format, tags, etc.) |
-| `docs/challenge-description.md` | Player-facing scenario/objective |
-| `docs/learning-objectives.md` | Educational takeaways (public bucket policies, access blocks, IaC scanning) |
-| `docs/architecture-diagram.md` | Mermaid diagram of the flow above |
-| `docs/walkthrough.md` | Full solve path with exact commands, reset procedure, known shortcuts |
-| `docs/hints.md` | 3 progressive hints |
+| `challenge-1-iac/bootstrap/variables.tf`, `challenge-1-iac/bootstrap/main.tf` | Shared, event-wide: Route53 zone lookup, wildcard ACM cert for `*.challenge1.aikidoctf.com`, shared ALB — applied once |
+| `challenge-1-iac/variables.tf` | `aws_region` (fixed to `us-west-2`), `team_id`, `zone_name`, `ctf_domain` |
+| `challenge-1-iac/main.tf` | Bucket + policy (the vuln), flag generation, ECS/Fargate app hosting, ALB target group/listener rule, DNS record |
+| `challenge-1-iac/app/app.py` | The entry-point Flask app that leaks the bucket URL |
+| `challenge-1-iac/app/Dockerfile` | Builds the app into the image referenced by the ECS task |
+| `challenge-1-iac/app/README.md` | One-time ECR bootstrap instructions (build/push before any team deploys) |
+| `challenge-1-iac/metadata.yaml` | Submission metadata (name, category, difficulty, flag format, tags, etc.) |
+| `challenge-1-iac/docs/challenge-description.md` | Player-facing scenario/objective |
+| `challenge-1-iac/docs/learning-objectives.md` | Educational takeaways (public bucket policies, access blocks, IaC scanning) |
+| `challenge-1-iac/docs/architecture-diagram.md` | Mermaid diagram of the flow above |
+| `challenge-1-iac/docs/walkthrough.md` | Full solve path with exact commands, reset procedure, known shortcuts |
+| `challenge-1-iac/docs/hints.md` | 3 progressive hints |
