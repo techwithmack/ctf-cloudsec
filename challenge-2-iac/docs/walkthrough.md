@@ -8,13 +8,14 @@
 
 ## 1. Log In and Enumerate
 
-Navigate to the team's Forgejo URL (`https://<team_id>.<ctf_domain>`) and log in with the provided
-`player` credentials. The account has Write access to exactly one repository: `<org>/infra`.
+Navigate to the team's Forgejo URL (`https://<team_id>.challenge2.aikidoctf.com`) and log in with
+the provided `player` credentials. The account has Write access to exactly one repository:
+`<org>/infra`.
 
 Clone it:
 
 ```bash
-git clone https://player:<password>@<team_id>.<ctf_domain>/team-<team_id>/infra.git
+git clone https://player:<password>@<team_id>.challenge2.aikidoctf.com/team-<team_id>/infra.git
 cd infra
 ```
 
@@ -84,8 +85,8 @@ a team:
 
 ```bash
 cd challenge-2-iac
-terraform destroy -var="team_id=<team_id>" -var="ctf_domain=<domain>"
-terraform apply   -var="team_id=<team_id>" -var="ctf_domain=<domain>"
+terraform destroy -var="team_id=<team_id>" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
+terraform apply   -var="team_id=<team_id>" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
 ```
 
 - `aws_secretsmanager_secret.flag` has `recovery_window_in_days = 0`, so destroy fully removes the

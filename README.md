@@ -1,9 +1,8 @@
-# Cloud Village CTF — Sponsor Challenges (Aikido Security)
+# Cloud Village CTF — Organizer Guide (Aikido Security)
 
-Two sponsor-hosted cloud security challenges built for the DEFCON Cloud Village CTF. Both are
-"Sponsor Hosted" (Aikido owns and operates the infrastructure), deployed on AWS in `us-west-2`
-(`us-east-1` is off-limits per the sponsor requirements), and use strict per-team resource
-isolation so that one team's actions can never affect another's.
+Two sponsor-hosted cloud security challenges for the DEFCON Cloud Village CTF. Aikido owns and
+operates the infrastructure end to end on AWS (`us-west-2`), with every team getting its own
+isolated set of cloud resources under one shared domain, `aikidoctf.com`.
 
 | | Challenge 1: The Flawed Blueprint | Challenge 2: The Shadow Pipeline Overlord |
 |---|---|---|
@@ -12,136 +11,114 @@ isolation so that one team's actions can never affect another's.
 | Points | 100 | 450 |
 | Solve time | 20 min | 75 min |
 | Directory | repo root (`main.tf`, `app/`, `docs/`) | `challenge-2-iac/` |
+| Player entry point | `https://<team_id>.challenge1.aikidoctf.com` | `https://<team_id>.challenge2.aikidoctf.com` |
 | Concept | Public S3 bucket policy leaks a forgotten backup file | Unprotected `deploy/*` branch lets a low-privileged CI user trigger a privileged OIDC-federated pipeline job |
 
 Both challenges' full deliverable sets (description, hints, learning objectives, architecture
-diagram, walkthrough, metadata) already exist on disk — this README ties them together and
-explains the mechanics that make per-team isolation actually hold up. It doesn't replace the
-per-challenge docs; treat this as the map.
+diagram, walkthrough, metadata) live under `docs/` (Challenge 1) and `challenge-2-iac/docs/`
+(Challenge 2). This README is the map — it explains the architecture and team model that both
+challenges share, then walks through each challenge's mechanics individually. For a deeper,
+resource-by-resource technical explainer of each challenge (what gets built, why, and exactly how
+the flag flows from Terraform to the player), see **[challenge1.md](challenge1.md)** and
+**[challenge2.md](challenge2.md)**.
+
+One naming note: the CI/CD challenge was called "Challenge 3" in early planning notes, but
+everything that actually ships it — `metadata.yaml`, the directory name `challenge-2-iac/`, the
+docs — calls it **Challenge 2**. This README follows what's actually on disk.
 
 ---
 
-## Conformance to the sponsor requirements
+## Team structure & isolation
 
-Cross-checked against `instructions/Requirements - Sponsor's CTF Challenges (1).pdf`:
+Every team gets a fully independent copy of a challenge's infrastructure, identified by a
+`team_id` (e.g. `team-01`). Nothing about one team's environment is visible to, shared with, or
+destructible by another team.
 
-| Requirement | How it's met |
-|---|---|
-| Hosting model | Both "Sponsor Hosted" — Aikido owns and operates the Terraform-managed AWS infrastructure end to end. |
-| Region restriction | `aws_region` defaults to `us-west-2` in both stacks; `us-east-1` never appears anywhere in the Terraform. |
-| Flag format | Both generate `FLAG-${random_id.flag_hex.hex}` with `byte_length = 16` → exactly 32 hex chars, matching `FLAG-{32hexadecimal/alphanumeric}`. |
-| Multi-tenancy / player isolation | `player_isolation: true` in both `metadata.yaml`; enforced structurally via the `team_id`-per-stack pattern (see below), not just declared. |
-| Realistic attack path, no zero-day, no guessing | Challenge 1: enumerate → find a genuinely public bucket → read a file. Challenge 2: a real branch-protection gap under a real (correctly-configured) OIDC trust policy — no fuzzing, no brute force. |
-| IaC required (Terraform, Dockerfiles, container images) | Both present: root/`challenge-2-iac` Terraform, `app/Dockerfile` / `challenge-2-iac/forgejo/Dockerfile`, images pushed to per-challenge ECR repos. |
-| Required deliverables (description, entry point, IaC, Dockerfiles, images, architecture diagram, walkthrough, hints, learning objectives, YAML metadata) | All present per challenge under `docs/` and `challenge-2-iac/docs/` respectively — see the file maps below. |
-| Hints: progressive, don't reveal the flag, pre-written | 3 hints per challenge, each escalating without stating the flag (`docs/hints.md`, `challenge-2-iac/docs/hints.md`). |
-| YAML metadata fields (name, category, difficulty, points, entrypoint, flag_format, estimated_solve_time, expected_steps, tags, player_isolation, deployment_type, hint_count) | Both `metadata.yaml` files carry every field, including `expected_steps` (3 and 4 respectively). |
-| Walkthrough must cover enumeration, commands, outputs, solve path, flag retrieval, tooling, unintended paths, reset procedure, rate-limiting | Covered in both `docs/walkthrough.md` files — including reset (`terraform destroy && apply` re-rolls the flag) and the shared-local-state-file caveat when scaling to multiple concurrent teams (see "The one operational sharp edge" below). |
-| Legal/safety restrictions | No outbound attacks on third parties, no crypto mining, no cross-team blast radius — the deploy role in Challenge 2 is scoped to read exactly one Secrets Manager secret, nothing account-wide. |
+### How a team's stack is built
 
-One naming note worth flagging: the CI/CD challenge is called "Challenge 3" in this repo's
-`CLAUDE.md` planning notes, but every deliverable that actually ships it (`metadata.yaml`,
-`docs/challenge-description.md`, the directory name `challenge-2-iac/`) calls it **Challenge 2**.
-This README follows what's actually on disk and in the metadata.
+Each challenge's Terraform is split into two layers:
 
----
+- **A shared "bootstrap" stack**, applied once for the whole event, that provisions the handful of
+  things that can only exist once: the Route53 zone lookup, a wildcard ACM certificate, and one
+  shared Application Load Balancer (`bootstrap/` for Challenge 1, `challenge-2-iac/bootstrap/` for
+  Challenge 2). It also owns the shared container image repo (ECR) for that challenge's entry-point
+  image, built once and reused by every team.
+- **A per-team stack**, applied once per `team_id` via a **Terraform workspace**
+  (`terraform workspace new <team_id>` in the relevant directory), that creates every resource that
+  team actually plays against: S3 bucket / Forgejo instance, compute, IAM roles, secrets, and its
+  own ALB routing rule + DNS record. Every resource name is suffixed with `team_id`
+  (e.g. `aikido-ctf-blueprint-backup-team-01`, `shadow-pipeline-deploy-team-01`), so two teams'
+  stacks never collide, never share an IAM role, and never share a data path.
 
-## The isolation mechanism (how it actually works)
+The per-team stack only ever *reads* the bootstrap's shared resources (as Terraform data sources) —
+it never tries to create them. That's what lets many teams' stacks apply independently without
+racing each other to create the same ALB or ECR repo twice.
 
-Both challenges use the same two-tier pattern to satisfy "safe multi-tenant operation": a small
-set of resources that must exist exactly once, shared read-only by every team, and a much larger
-set of resources that get created fresh, per team, from a Terraform stack parameterized entirely
-by a `team_id` variable.
+### Routing: one domain, one subdomain per challenge, one host per team
 
-### The rule: name everything with `team_id`, create nothing shared
+Both challenges are published under the same registered domain, `aikidoctf.com`, rather than raw
+IPs — internal portals in the real world are never bare IPs, and it avoids the instability of
+Fargate tasks having no stable address of their own. Each challenge gets its own subdomain,
+wildcard-certed one level down so every team's third-level host is covered:
 
-Every resource that a team's stack *creates* — S3 bucket, ECS cluster/service/task, IAM role,
-security group, EFS volume, Secrets Manager secret, IAM OIDC provider, EC2 instance — has
-`team_id` baked into its name (e.g. `aikido-ctf-blueprint-backup-${var.team_id}`,
-`shadow-pipeline-deploy-${var.team_id}`). Two teams running `terraform apply -var="team_id=<x>"`
-independently therefore never collide on a resource name, never share an IAM role, and never share
-a data path. Tearing down one team (`terraform destroy -var="team_id=<x>"`) only touches that
-team's suffixed resources.
+- Challenge 1: `<team_id>.challenge1.aikidoctf.com`
+- Challenge 2: `<team_id>.challenge2.aikidoctf.com`
 
-### The exception: resources that must exist exactly once
+Teams are distinguished purely by an ALB host-header routing rule pointing at that team's own
+target group — not by separate load balancers. (A wildcard cert for `*.aikidoctf.com` would **not**
+cover `<team_id>.challenge1.aikidoctf.com`, since that's two levels below the apex — hence one
+wildcard cert per challenge subdomain, not one at the domain root.)
 
-A small number of things genuinely cannot be created per-team without every team's apply racing to
-create the same object twice (a container image repo, a domain's DNS zone, a load balancer). Both
-challenges solve this the same way — provision that shared piece **once, out-of-band**, and have
-every per-team stack reference it as a **read-only data source**, never as a `resource`:
+### What isolation actually buys a team
 
-- **Challenge 1:** a shared `bootstrap/` stack (`bootstrap/main.tf`, applied once for the whole
-  event) provisions the same trio Challenge 2 does — a Route53 zone lookup, a wildcard ACM cert for
-  `*.challenge1.aikidoctf.com`, and one shared ALB — plus the shared ECR repo (`aikido-ctf-flawed-blueprint`,
-  built and pushed once, see `app/README.md`). The per-team stack (`main.tf`) looks up all of these
-  read-only and adds only its own host-header listener rule (`<team_id>.challenge1.aikidoctf.com`)
-  and DNS record. The container image itself is generic — it gets team-specific behavior purely from
-  environment variables (`TEAM_ID`, `TARGET_BUCKET_URL`) injected by that team's ECS task definition.
-- **Challenge 2:** a whole shared "bootstrap" stack (`challenge-2-iac/bootstrap/`), applied once
-  for the entire event, before any team's stack: the Route53 zone for the CTF domain, a wildcard
-  ACM cert (`*.<ctf_domain>`), one shared ALB with an HTTPS listener, and the shared ECR repo for
-  the Forgejo image. Every per-team apply (`challenge-2-iac/main.tf`) looks all four up read-only
-  (`data "aws_lb"`, `data "aws_route53_zone"`, `data "aws_ecr_repository"`, etc.) and adds only its
-  own host-header listener rule (`<team_id>.<ctf_domain>` → that team's target group) and DNS
-  record — teams are distinguished by ALB routing rule, not by separate load balancers.
-
-This is exactly the same reasoning in both challenges, stated explicitly in the Terraform
-comments: a per-team-applied stack can safely *reference* a shared object, but if it tried to
-*create* that object as a `resource`, every team after the first would fail with "already exists."
-
-### What "isolated" actually buys a team, concretely
-
-- **Challenge 1:** each team gets its own bucket, its own Fargate task, its own IAM execution role,
-  its own security group, its own ALB target group/listener rule/DNS record. A team can misconfigure
-  or even delete its own bucket without touching any other team's.
-- **Challenge 2:** each team gets its own Forgejo instance (own SQLite DB on its own EFS volume, own
-  org/repo/player account), its own EC2 CI runner, its own IAM OIDC provider, and its own deploy
-  role. Critically, the OIDC trust policy's `sub` condition is scoped to that team's own
-  `repo:team-<id>/infra:ref:refs/heads/deploy/*` — so even if a team fully compromises its own
-  deploy role, the trust policy structurally cannot be satisfied by a token from a *different*
-  team's Forgejo issuer (a different OIDC provider ARN, a different `sub` claim). One team pwning
-  its own pipeline has no path to another team's flag.
-- **Per-team secrets never cross teams:** Challenge 2's flag lives in a per-team Secrets Manager
-  secret (`shadow-pipeline-flag-${team_id}`), and the runner registration token lives in a per-team
-  SSM parameter path (`/ctf/challenge2/${team_id}/runner-token`) — both name-scoped the same way as
-  every other resource.
+- **Challenge 1:** each team gets its own S3 bucket, Fargate task, IAM execution role, security
+  group, and ALB routing rule. A team can misconfigure or even delete its own bucket without
+  touching any other team's.
+- **Challenge 2:** each team gets its own Forgejo instance (its own SQLite DB on its own EFS
+  volume, its own org/repo/player account), its own EC2 CI runner, its own IAM OIDC provider, and
+  its own deploy role. The OIDC trust policy's `sub` condition is scoped to that team's own
+  `repo:team-<id>/infra:ref:refs/heads/deploy/*` — so even a team that fully compromises its own
+  deploy role has no path to another team's flag, since the trust policy can't be satisfied by a
+  token from a different team's Forgejo issuer.
+- **Secrets never cross teams:** Challenge 2's flag lives in a per-team Secrets Manager secret
+  (`shadow-pipeline-flag-${team_id}`), and the runner registration token lives in a per-team SSM
+  parameter (`/ctf/challenge2/${team_id}/runner-token`) — both name-scoped the same way as every
+  other resource.
 - **Concurrent operation:** because isolation is structural (distinct AWS resources, not shared
-  mutable state), many teams can run simultaneously without contention — satisfying the sponsor's
-  "concurrent users + operational stability under load" requirement.
+  mutable state), many teams run simultaneously without contention.
 
-### The one operational sharp edge: Terraform state
+### Managing teams
 
-Both challenges' per-team Terraform runs against a **single local state file** in their directory
-(`main.tf` at repo root; `challenge-2-iac/main.tf`). The isolation of the *AWS resources* is solid
-regardless, but running two teams' `terraform apply` from the same local state file at the same
-time will conflict with each other at the Terraform level (lock contention / stale state), even
-though the actual infrastructure they produce is safely separated. Both `DEPLOYMENT.md`-equivalent
-docs call this out and recommend a `terraform workspace` per team, or a distinct state key (e.g. an
-S3 backend with `-backend-config="key=team-<id>/terraform.tfstate"`) once scaling past one or two
-teams at once.
+Adding a team is the same two commands in either challenge's directory:
 
-### Domain: `aikidoctf.com`
+```bash
+terraform workspace new <team_id>   # or `select` if it already exists
+terraform apply \
+  -var="team_id=<team_id>" \
+  -var="zone_name=aikidoctf.com" \
+  -var="ctf_domain=challenge{1,2}.aikidoctf.com"
+```
 
-Both challenges are published under one real domain registered through Route53 (`aikidoctf.com`),
-rather than raw IPs — internal portals in the wild are never bare IPs, and it avoids Fargate's lack
-of a stable per-task address. Each challenge gets its own subdomain, wildcard-certed one level down
-so per-team third-level hosts are covered:
+Each per-team stack has its own Terraform state (via the workspace), so applying/destroying one
+team never touches another's state or resources. Grab that team's credentials and flag from the
+stack's outputs — never hardcode them anywhere:
 
-- Challenge 1: `<team_id>.challenge1.aikidoctf.com` (wildcard cert `*.challenge1.aikidoctf.com`,
-  provisioned by `bootstrap/`)
-- Challenge 2: `<team_id>.challenge2.aikidoctf.com` (wildcard cert `*.challenge2.aikidoctf.com`,
-  provisioned by `challenge-2-iac/bootstrap/`)
+```bash
+terraform output entrypoint_url
+terraform output -raw qa_verification_flag     # Challenge 1 & 2
+terraform output player_username                # Challenge 2 only
+terraform output -raw player_password            # Challenge 2 only
+```
 
-Both bootstrap stacks take a `zone_name` (the zone that actually exists — `aikidoctf.com`) separate
-from `ctf_domain` (the challenge-level subdomain the cert/ALB are scoped to) — `zone_name` locates
-the Route53 zone via `data "aws_route53_zone"`, while `ctf_domain` names the wildcard cert and every
-per-team DNS record created inside that zone. A wildcard cert for `*.aikidoctf.com` would **not**
-cover `<team_id>.challenge1.aikidoctf.com` (that's two levels down) — hence one wildcard cert per
-challenge subdomain rather than one at the apex.
+Tearing a team down is `terraform destroy` with the same three `-var` flags — the S3 bucket
+(`force_destroy = true`) and the flag secret (`recovery_window_in_days = 0`) clean up immediately,
+and a fresh `apply` afterward re-rolls that team a brand-new flag.
 
 ---
 
 ## Challenge 1: The Flawed Blueprint
+
+*Deep technical explainer: [challenge1.md](challenge1.md)*
 
 **Scenario:** Aikido's platform team pushed a "quick backup" of production config to cloud storage
 during a migration and never cleaned it up. An internal developer portal still references the
@@ -175,11 +152,12 @@ path.
 | `docs/architecture-diagram.md` | Mermaid diagram of the flow above |
 | `docs/walkthrough.md` | Full solve path, exact commands, reset procedure |
 | `docs/hints.md` | 3 progressive hints |
-| `challenge1.md` (gitignored) | Internal technical explainer of the mechanics — not a submission deliverable |
 
 ---
 
 ## Challenge 2: The Shadow Pipeline Overlord
+
+*Deep technical explainer: [challenge2.md](challenge2.md)*
 
 **Scenario:** Aikido's platform team runs a self-hosted Forgejo instance. Players start with a
 low-privileged `player` account holding **Write** access to exactly one repo (`infra`), which holds
@@ -209,7 +187,7 @@ step).
 | File | Role |
 |---|---|
 | `bootstrap/main.tf`, `bootstrap/variables.tf` | Shared, event-wide: Route53 zone, wildcard ACM cert, shared ALB, shared ECR repo — applied once |
-| `variables.tf` | `aws_region`, `team_id`, `ctf_domain`, `runner_instance_type` |
+| `variables.tf` | `aws_region`, `team_id`, `zone_name`, `ctf_domain`, `runner_instance_type` |
 | `main.tf` | Per-team stack: Forgejo (ECS Fargate + EFS), CI runner (EC2), IAM OIDC provider + deploy role (correctly scoped), the flag secret, ALB host-header routing |
 | `forgejo/Dockerfile`, `forgejo/bootstrap.sh` | Custom Forgejo image; bootstrap script provisions org/repo/player/branch-protection/workflow/runner-token idempotently on first boot |
 | `forgejo/deploy-workflow.yml` | The pre-committed pipeline the runner executes |
