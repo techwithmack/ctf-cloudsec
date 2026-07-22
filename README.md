@@ -1,4 +1,4 @@
-# Cloud Village CTF — Organizer Guide (Aikido Security)
+# Cloud Village CTF - Aikido 
 
 Two sponsor-hosted cloud security challenges for the DEFCON Cloud Village CTF. Aikido owns and
 operates the infrastructure end to end on AWS (`us-west-2`), with every team getting its own
