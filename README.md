@@ -34,24 +34,16 @@ routed via ALB host-header rules (`<team_id>.challenge1.aikidoctf.com` /
 ### Managing teams
 
 ```bash
-terraform workspace new <team_id>   # or `select` if it exists
-terraform apply \
-  -var="team_id=<team_id>" \
-  -var="zone_name=aikidoctf.com" \
-  -var="ctf_domain=challenge{1,2}.aikidoctf.com"
+./scripts/add-team.sh <team_id>
 ```
 
-Pull that team's credentials/flag from outputs — never hardcode them:
+Provisions (or re-applies) both challenges for that team and prints its URLs, credentials, and
+flag. Safe to re-run for an existing team_id. Requires both challenges' `bootstrap/` stacks to
+already be applied (once per event, not per team).
 
-```bash
-terraform output entrypoint_url
-terraform output -raw qa_verification_flag
-terraform output player_username        # Challenge 2 only
-terraform output -raw player_password   # Challenge 2 only
-```
-
-`terraform destroy` with the same flags tears a team down cleanly; a fresh `apply` gives them a
-new flag.
+To tear a team down, `terraform destroy` in either challenge directory with the same
+`-var="team_id=..." -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge{1,2}.aikidoctf.com"`
+flags; a fresh `apply` afterward gives them a new flag.
 
 ---
 
