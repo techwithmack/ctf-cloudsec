@@ -15,7 +15,7 @@ Navigate to the entry point URL given to your team (the `entrypoint_url` Terrafo
 curl -s https://<team_id>.challenge1.aikidoctf.com/
 ```
 
-Expected output — an HTML page for an "Aikido Internal Developer Portal," including an HTML
+Expected output — an HTML page for the "Meridian Systems Developer Portal," including an HTML
 comment:
 
 ```html
