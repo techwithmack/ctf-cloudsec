@@ -41,9 +41,12 @@ Provisions (or re-applies) both challenges for that team and prints its URLs, cr
 flag. Safe to re-run for an existing team_id. Requires both challenges' `bootstrap/` stacks to
 already be applied (once per event, not per team).
 
-To tear a team down, `terraform destroy` in either challenge directory with the same
-`-var="team_id=..." -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge{1,2}.aikidoctf.com"`
-flags; a fresh `apply` afterward gives them a new flag.
+```bash
+./scripts/remove-team.sh <team_id>
+```
+
+Tears a team down in both challenges and deletes its Terraform workspace. Prompts for
+confirmation unless run with `--yes`. A fresh `add-team.sh` afterward gives them a new flag.
 
 ---
 
