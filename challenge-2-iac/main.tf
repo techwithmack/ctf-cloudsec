@@ -586,6 +586,16 @@ resource "aws_instance" "runner" {
   associate_public_ip_address = true
   user_data_replace_on_change = true # user-data only runs on first boot, so a change must force a fresh instance
 
+  # The AL2023 AMI's default root volume is only 2GB - nowhere near enough for
+  # Docker (pulling the job's container image) plus the deploy workflow's own
+  # `apt-get install`/AWS CLI v2 download-and-unpack, found by live testing: a
+  # real deploy run filled the disk mid-job ("no space left on device") and
+  # Docker itself failed to set up the job container's pivot root as a result.
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
   user_data = templatefile("${path.module}/runner/user_data.sh.tftpl", {
     forgejo_url    = local.forgejo_url
     ssm_param_name = local.ssm_param_name
