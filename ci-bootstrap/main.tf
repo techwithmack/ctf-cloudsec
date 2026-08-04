@@ -222,7 +222,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
   statement {
     sid       = "ChallengeBucketObjects"
     effect    = "Allow"
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:GetObjectTagging", "s3:PutObjectTagging", "s3:DeleteObjectTagging"]
     resources = ["arn:aws:s3:::aikido-ctf-blueprint-backup-*/*"]
   }
 
