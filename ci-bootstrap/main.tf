@@ -411,6 +411,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
       "elasticfilesystem:CreateFileSystem", "elasticfilesystem:DeleteFileSystem", "elasticfilesystem:DescribeFileSystems",
       "elasticfilesystem:CreateMountTarget", "elasticfilesystem:DeleteMountTarget", "elasticfilesystem:DescribeMountTargets",
       "elasticfilesystem:TagResource", "elasticfilesystem:DescribeTags", "elasticfilesystem:DescribeLifecycleConfiguration",
+      "elasticfilesystem:DescribeMountTargetSecurityGroups",
     ]
     resources = ["*"] # EFS file-system IDs are only known after creation
   }
