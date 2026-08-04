@@ -204,7 +204,14 @@ resource "null_resource" "wait_for_efs_mount_targets" {
       set -e
       for id in ${join(" ", [for mt in aws_efs_mount_target.forgejo_data : mt.id])}; do
         for i in $(seq 1 30); do
-          STATE=$(aws efs describe-mount-targets --mount-target-id "$id" --region "${var.aws_region}" --query 'MountTargets[0].LifeCycleState' --output text)
+          # The describe call itself can fail transiently (e.g.
+          # ThrottlingException when several teams provision in parallel
+          # and all poll EFS at once, found by live testing) - treated the
+          # same as "not available yet" rather than aborting the whole
+          # apply, since `set -e` would otherwise take the API call's own
+          # non-zero exit as fatal instead of letting the retry loop below
+          # handle it.
+          STATE=$(aws efs describe-mount-targets --mount-target-id "$id" --region "${var.aws_region}" --query 'MountTargets[0].LifeCycleState' --output text 2>/dev/null || echo "")
           if [ "$STATE" = "available" ]; then
             break
           fi
