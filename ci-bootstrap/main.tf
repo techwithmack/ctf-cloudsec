@@ -241,7 +241,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     effect = "Allow"
     actions = [
       "ecs:DescribeClusters", "ecs:DescribeServices", "ecs:DescribeTaskDefinition", "ecs:ListTagsForResource",
-      "ec2:DescribeVpcs", "ec2:DescribeVpcAttribute", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeImages",
+      "ec2:DescribeVpcs", "ec2:DescribeVpcAttribute", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeImages", "ec2:DescribeInstanceTypes",
       "ec2:DescribeInstances", "ec2:DescribeNetworkInterfaces", "ec2:DescribeAvailabilityZones",
       "ec2:DescribeAccountAttributes", "ec2:DescribeTags",
       "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes", "elasticloadbalancing:DescribeListeners",
