@@ -197,7 +197,13 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     resources = [aws_dynamodb_table.tf_lock.arn]
   }
 
-  # Challenge S3 buckets (Challenge 1's leaky bucket, per team)
+  # Challenge S3 buckets (Challenge 1's leaky bucket, per team). The
+  # aws_s3_bucket resource in this AWS provider version reads every one of a
+  # bucket's sub-configurations on every refresh (CORS, lifecycle, logging,
+  # versioning, encryption, website, object lock, replication, request
+  # payment, acceleration, location) regardless of whether any of them are
+  # actually set - found by live testing one AccessDenied at a time, so
+  # granted up front here rather than one more round trip per attribute.
   statement {
     sid    = "ChallengeBuckets"
     effect = "Allow"
@@ -205,6 +211,10 @@ data "aws_iam_policy_document" "provisioner_permissions" {
       "s3:CreateBucket", "s3:DeleteBucket", "s3:GetBucketPolicy", "s3:PutBucketPolicy",
       "s3:DeleteBucketPolicy", "s3:GetBucketPublicAccessBlock", "s3:PutBucketPublicAccessBlock",
       "s3:GetBucketTagging", "s3:PutBucketTagging", "s3:ListBucket", "s3:GetBucketAcl",
+      "s3:GetBucketCORS", "s3:GetLifecycleConfiguration", "s3:GetBucketLogging",
+      "s3:GetBucketObjectLockConfiguration", "s3:GetReplicationConfiguration",
+      "s3:GetEncryptionConfiguration", "s3:GetBucketVersioning", "s3:GetBucketWebsite",
+      "s3:GetAccelerateConfiguration", "s3:GetBucketRequestPayment", "s3:GetBucketLocation",
     ]
     resources = ["arn:aws:s3:::aikido-ctf-blueprint-backup-*"]
   }
