@@ -218,19 +218,27 @@ data "aws_iam_policy_document" "provisioner_permissions" {
 
   # ECS/EC2/networking Describe calls: AWS does not support resource-level
   # restriction on these read-only Describe/List actions.
+  #
+  # DescribeLoadBalancerAttributes / ListHostedZones / ecr:ListTagsForResource /
+  # DescribeVpcAttribute were all found missing by live testing - the
+  # `aws_lb`, `aws_route53_zone`, `aws_ecr_repository`, and `aws_vpc` data
+  # sources in this AWS provider version each call one more read-only API
+  # than the original permission set assumed, and this role (unlike the
+  # `ctf-user` IAM user used to author/test the Terraform locally) has no
+  # broader permissions to silently fall back on.
   statement {
     sid    = "ReadOnlyDescribe"
     effect = "Allow"
     actions = [
       "ecs:DescribeClusters", "ecs:DescribeServices", "ecs:DescribeTaskDefinition", "ecs:ListTagsForResource",
-      "ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeImages",
+      "ec2:DescribeVpcs", "ec2:DescribeVpcAttribute", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeImages",
       "ec2:DescribeInstances", "ec2:DescribeNetworkInterfaces", "ec2:DescribeAvailabilityZones",
       "ec2:DescribeAccountAttributes", "ec2:DescribeTags",
-      "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeListeners",
+      "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes", "elasticloadbalancing:DescribeListeners",
       "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeTags",
-      "route53:GetHostedZone", "route53:ListHostedZonesByName", "route53:ListResourceRecordSets", "route53:GetChange",
-      "ecr:GetAuthorizationToken", "ecr:DescribeRepositories", "ecr:DescribeImages",
+      "route53:GetHostedZone", "route53:ListHostedZones", "route53:ListHostedZonesByName", "route53:ListResourceRecordSets", "route53:GetChange",
+      "ecr:GetAuthorizationToken", "ecr:DescribeRepositories", "ecr:DescribeImages", "ecr:ListTagsForResource",
       "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
       "sts:GetCallerIdentity",
     ]
