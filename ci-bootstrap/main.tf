@@ -376,6 +376,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     effect = "Allow"
     actions = [
       "ssm:PutParameter", "ssm:GetParameter", "ssm:DeleteParameter", "ssm:AddTagsToResource",
+      "ssm:ListTagsForResource",
     ]
     resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/ctf/challenge2/*"]
   }
@@ -422,7 +423,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     # AWS evaluated it against a malformed pseudo-ARN, not this log group's
     # real one, and denied regardless) - granted "*"-scoped in
     # ReadOnlyDescribe above instead.
-    actions   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource"]
+    actions   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "logs:ListTagsForResource"]
     resources = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/shadow-pipeline-forgejo-*"]
   }
 }
