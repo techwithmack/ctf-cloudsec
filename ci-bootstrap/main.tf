@@ -250,7 +250,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
       "route53:GetHostedZone", "route53:ListHostedZones", "route53:ListHostedZonesByName", "route53:ListResourceRecordSets", "route53:GetChange", "route53:ListTagsForResource",
       "ecr:GetAuthorizationToken", "ecr:DescribeRepositories", "ecr:DescribeImages", "ecr:ListTagsForResource",
       "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
-      "sts:GetCallerIdentity",
+      "sts:GetCallerIdentity", "ssm:DescribeParameters", "logs:DescribeLogGroups",
     ]
     resources = ["*"]
   }
@@ -409,15 +409,20 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     actions = [
       "elasticfilesystem:CreateFileSystem", "elasticfilesystem:DeleteFileSystem", "elasticfilesystem:DescribeFileSystems",
       "elasticfilesystem:CreateMountTarget", "elasticfilesystem:DeleteMountTarget", "elasticfilesystem:DescribeMountTargets",
-      "elasticfilesystem:TagResource", "elasticfilesystem:DescribeTags",
+      "elasticfilesystem:TagResource", "elasticfilesystem:DescribeTags", "elasticfilesystem:DescribeLifecycleConfiguration",
     ]
     resources = ["*"] # EFS file-system IDs are only known after creation
   }
 
   statement {
-    sid       = "CloudWatchLogs"
-    effect    = "Allow"
-    actions   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:DescribeLogGroups", "logs:TagResource"]
+    sid    = "CloudWatchLogs"
+    effect = "Allow"
+    # logs:DescribeLogGroups is deliberately NOT here - it's a bulk-list
+    # action that doesn't support resource-level restriction (found live:
+    # AWS evaluated it against a malformed pseudo-ARN, not this log group's
+    # real one, and denied regardless) - granted "*"-scoped in
+    # ReadOnlyDescribe above instead.
+    actions   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource"]
     resources = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/shadow-pipeline-forgejo-*"]
   }
 }
