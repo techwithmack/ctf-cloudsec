@@ -366,6 +366,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     actions = [
       "secretsmanager:CreateSecret", "secretsmanager:DeleteSecret", "secretsmanager:DescribeSecret",
       "secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:TagResource",
+      "secretsmanager:GetResourcePolicy",
     ]
     resources = ["arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:shadow-pipeline-flag-*"]
   }
