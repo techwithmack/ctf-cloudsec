@@ -6,6 +6,18 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  # Remote state (see ci-bootstrap/) - required so both the CI workflows in
+  # .github/workflows/ and organizers' local machines see the same state for every
+  # team workspace. Workspaces are namespaced automatically under this key
+  # (env:/<workspace>/challenge-1/terraform.tfstate).
+  backend "s3" {
+    bucket         = "aikidoctf-terraform-state"
+    key            = "challenge-1/terraform.tfstate"
+    region         = "us-west-2"
+    dynamodb_table = "aikidoctf-terraform-locks"
+    encrypt        = true
+  }
 }
 
 provider "aws" {
@@ -95,17 +107,19 @@ resource "aws_s3_bucket_policy" "public_read_policy" {
   })
 }
 
-# 4a. Dynamically generate a unique 32-character hex string for the flag
-resource "random_id" "flag_hex" {
-  byte_length = 16 # 16 bytes = 32 hex characters
+# 4a. The flag is generated once for the whole event in bootstrap/ (one shared
+# answer per challenge, not per team) and looked up read-only here, same
+# read-only-data-source pattern as every other bootstrap resource above.
+data "aws_ssm_parameter" "flag" {
+  name            = "/ctf/challenge1/flag"
+  with_decryption = true
 }
 
-# 4b. Local variable containing the fully formatted CTF flag
 locals {
-  generated_flag = "FLAG-${random_id.flag_hex.hex}"
+  generated_flag = data.aws_ssm_parameter.flag.value
 }
 
-# 4c. Upload the "forgotten developer backup configuration file" containing the dynamic flag
+# 4b. Upload the "forgotten developer backup configuration file" containing the dynamic flag
 resource "aws_s3_object" "backup_file" {
   bucket       = aws_s3_bucket.leaky_bucket.id
   key          = "prod_backup_config.toml"
@@ -133,7 +147,7 @@ EOF
   }
 }
 
-# 4d. Output the flag (Hidden from players, but visible to you for QA verification)
+# 4c. Output the flag (Hidden from players, but visible to you for QA verification)
 output "qa_verification_flag" {
   value       = local.generated_flag
   description = "The generated flag for QA verification purposes."

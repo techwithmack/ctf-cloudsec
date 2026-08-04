@@ -30,10 +30,15 @@ identity (org/repo names, credentials, AWS role ARN, flag secret ARN, SSM parame
 injected via environment variables in the ECS task definition, the same pattern Challenge 1 uses
 for its entry-point app.
 
-Re-run step 3 whenever `bootstrap.sh` or `deploy-workflow.yml` changes; existing team deployments
-pick up the new image on their next task restart (`aws ecs update-service --force-new-deployment`),
-though note that `bootstrap.sh`'s provisioning step only re-runs if the persistent EFS-backed
-`/data` volume's marker file (`/data/.ctf-bootstrap-done`) is absent — a config-only change (e.g.
-a workflow tweak) that needs to reach an *already-provisioned* team's repo requires either
-deleting that marker file first or applying the change directly via the Forgejo API/UI for that
-team.
+Re-run step 3 whenever `bootstrap.sh`, `deploy-workflow.yml`, or `seed-repo/` changes; existing
+team deployments pick up the new image on their next task restart (`aws ecs update-service
+--force-new-deployment`), though note that `bootstrap.sh`'s provisioning step only re-runs if the
+persistent EFS-backed `/data` volume's marker file (`/data/.ctf-bootstrap-done`) is absent — a
+config-only change (e.g. a workflow tweak, or a `seed-repo/` file edit) that needs to reach an
+*already-provisioned* team's repo requires either deleting that marker file first or applying the
+change directly via the Forgejo API/UI for that team.
+
+`seed-repo/` is the realistic filler content committed to `main` alongside `deploy.yml` (README,
+runbook, decoy CI workflow, flavor Terraform for the fictional "checkout-service") — purely for
+believability, so the deploy workflow isn't the only file in a fresh team's repo. None of it is
+real infrastructure and none of it is referenced by the actual challenge or its solve path.

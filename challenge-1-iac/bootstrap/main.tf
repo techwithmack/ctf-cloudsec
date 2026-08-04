@@ -19,6 +19,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -164,6 +168,25 @@ resource "aws_lb_listener" "https" {
       message_body = "Not Found"
       status_code  = "404"
     }
+  }
+}
+
+# 4. The flag - one per challenge for the whole event, not one per team (the
+# sponsor can only support a single answer per challenge, not per-team unique
+# answers - see the 2026-08 Discord thread with CTF Ops/Techops). Stored in SSM
+# rather than baked directly into the per-team stack so every team's apply reads
+# the exact same value instead of each generating its own.
+resource "random_id" "flag_hex" {
+  byte_length = 16
+}
+
+resource "aws_ssm_parameter" "flag" {
+  name  = "/ctf/challenge1/flag"
+  type  = "SecureString"
+  value = "FLAG-${random_id.flag_hex.hex}"
+
+  tags = {
+    Challenge = "The Flawed Blueprint"
   }
 }
 

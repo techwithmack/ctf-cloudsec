@@ -89,10 +89,10 @@ terraform destroy -var="team_id=<team_id>" -var="zone_name=aikidoctf.com" -var="
 terraform apply   -var="team_id=<team_id>" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
 ```
 
-- `aws_secretsmanager_secret.flag` has `recovery_window_in_days = 0`, so destroy fully removes the
-  old flag immediately (no 7-30 day recovery window blocking a same-name recreate).
-- A fresh `apply` generates a new flag, new Forgejo admin/player passwords, and a fresh EFS volume
-  — the old team's git history, runner registration, and flag are all gone.
+- The flag is **not** per-team anymore (one shared flag per challenge, generated once by
+  `bootstrap/` — see CLAUDE.md) — resetting a team does not change the answer. A fresh `apply`
+  regenerates new Forgejo admin/player passwords and a fresh EFS volume, and reads the same shared
+  flag as every other team via `data.aws_secretsmanager_secret_version.flag`.
 
 ## Stability & Rate Limiting Concerns
 

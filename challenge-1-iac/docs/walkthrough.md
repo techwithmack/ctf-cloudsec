@@ -84,8 +84,9 @@ terraform apply   -var="team_id=<team_id>" -var="aws_region=us-west-2" -var="zon
 
 - The S3 bucket has `force_destroy = true`, so `terraform destroy` cleans it up (including the
   backup object) without manual emptying.
-- A fresh `apply` generates a **new** `random_id`-based flag, so a reset team gets a new flag value
-  — old flags stop working immediately after destroy.
+- The flag is **not** per-team anymore (one shared flag per challenge, generated once by
+  `bootstrap/` — see CLAUDE.md) — resetting a team does not change the answer. A fresh `apply`
+  writes the same shared flag (read from SSM) into the recreated backup object.
 
 ## Stability & Rate Limiting Concerns
 

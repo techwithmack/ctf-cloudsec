@@ -111,6 +111,36 @@ api_call "add player as collaborator" "" "${AUTH[@]}" -X PUT "${API}/repos/${ORG
   -H "Content-Type: application/json" \
   -d '{"permission": "write"}'
 
+# Seed the repo with realistic surrounding content (README, runbooks, a decoy CI workflow, flavor
+# Terraform for the fictional service, etc.) so the deploy workflow committed below isn't the only
+# file in the repo - a repo containing exactly one file is an obvious tell that undermines the
+# intended empirical-discovery solve path (see docs/walkthrough.md step 2).
+echo "[bootstrap] seeding repo with baseline content..."
+while IFS= read -r -d '' file; do
+  rel_path="${file#/seed-repo/}"
+  content_b64=$(base64 "$file" | tr -d '\n')
+
+  if [ "$rel_path" = "README.md" ]; then
+    # auto_init already committed a default README when the repo was created, so this one exists
+    # on every fresh team already - update it in place (needs the current blob's sha) rather than
+    # the create-if-missing pattern used for every other file below.
+    current_sha=$(curl -s "${AUTH[@]}" "${API}/repos/${ORG_NAME}/${REPO_NAME}/contents/README.md?ref=main" | jq -r .sha)
+    api_call "seed README.md" "" "${AUTH[@]}" -X PUT "${API}/repos/${ORG_NAME}/${REPO_NAME}/contents/README.md" \
+      -H "Content-Type: application/json" \
+      -d "{\"content\": \"${content_b64}\", \"sha\": \"${current_sha}\", \"message\": \"Update README\", \"branch\": \"main\"}"
+    continue
+  fi
+
+  file_status=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" "${API}/repos/${ORG_NAME}/${REPO_NAME}/contents/${rel_path}?ref=main")
+  if [ "$file_status" = "200" ]; then
+    echo "[bootstrap] ${rel_path} already committed, skipping"
+    continue
+  fi
+  api_call "seed ${rel_path}" "" "${AUTH[@]}" -X POST "${API}/repos/${ORG_NAME}/${REPO_NAME}/contents/${rel_path}" \
+    -H "Content-Type: application/json" \
+    -d "{\"content\": \"${content_b64}\", \"message\": \"Add ${rel_path}\", \"branch\": \"main\"}"
+done < <(find /seed-repo -type f -print0)
+
 # Both of the following use check-before-write rather than tolerating a
 # specific "already exists" status code: once main is protected, Forgejo's
 # Contents API commit check rejects a write to main with 403 regardless of

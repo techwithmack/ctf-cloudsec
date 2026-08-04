@@ -1,0 +1,5 @@
+# Default owners for everything in this repo
+*                       @platform-team
+
+# The deploy pipeline is release engineering's territory
+/.forgejo/workflows/    @release-engineering

@@ -1,0 +1,69 @@
+name: Destroy team environments
+
+# Tears down one or more teams' environments. Gated behind the `destroy-approval`
+# GitHub Environment (required reviewers configured in repo Settings > Environments -
+# see README.md) so a mistyped team_id or wrong click during a live event can't
+# immediately destroy a running team's stack without a human confirming first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      team_ids:
+        description: 'Team IDs to destroy, comma and/or newline separated (e.g. "team-01, team-02, team-03")'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      teams: ${{ steps.parse.outputs.teams }}
+    steps:
+      - id: parse
+        name: Parse team_ids into a JSON list
+        run: |
+          teams_json=$(printf '%s' "$TEAM_IDS" \
+            | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+            | grep -v '^$' \
+            | jq -R . | jq -sc .)
+          echo "Teams: $teams_json"
+          echo "teams=$teams_json" >> "$GITHUB_OUTPUT"
+        env:
+          TEAM_IDS: ${{ inputs.team_ids }}
+
+  destroy:
+    needs: prepare
+    if: needs.prepare.outputs.teams != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: destroy-approval
+    permissions:
+      id-token: write # required to fetch the OIDC token for AWS role assumption
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        team: ${{ fromJson(needs.prepare.outputs.teams) }}
+    concurrency:
+      # Guards against two runs (or provision + destroy) racing the same team's
+      # Terraform workspace at once.
+      group: ctf-team-${{ matrix.team }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_OIDC_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Destroy ${{ matrix.team }}
+        run: ./scripts/remove-team.sh "${{ matrix.team }}" --yes

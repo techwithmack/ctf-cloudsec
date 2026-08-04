@@ -16,6 +16,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -170,6 +174,29 @@ resource "aws_lb_listener" "https" {
 resource "aws_ecr_repository" "forgejo" {
   name         = "shadow-pipeline-forgejo"
   force_delete = true
+}
+
+# 5. The flag - one per challenge for the whole event, not one per team (the
+# sponsor can only support a single answer per challenge, not per-team unique
+# answers - see the 2026-08 Discord thread with CTF Ops/Techops). Every team's
+# deploy role (challenge-2-iac/main.tf's aws_iam_role.deploy) is granted read
+# access to this same secret, so any team's escalation prints the same value.
+resource "random_id" "flag_hex" {
+  byte_length = 16
+}
+
+resource "aws_secretsmanager_secret" "flag" {
+  name                    = "shadow-pipeline-flag"
+  recovery_window_in_days = 0 # allow immediate delete on event teardown
+
+  tags = {
+    Challenge = "The Shadow Pipeline Overlord"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "flag" {
+  secret_id     = aws_secretsmanager_secret.flag.id
+  secret_string = "FLAG-${random_id.flag_hex.hex}"
 }
 
 output "alb_security_group_id" {

@@ -1,0 +1,56 @@
+name: Reap expired team environments
+
+# Enforces the 1-hour environment TTL for self-serve provisioning (see the
+# 2026-08 Discord thread with CTF Ops/Techops): runs on a schedule, checks
+# every active team workspace in both challenges against AWS's own record of
+# when that team's ECS service was created, and destroys anything past the
+# limit via the same scripts/remove-team.sh used by the manual destroy
+# workflow. No destroy-approval gate here on purpose - enforcing the TTL
+# without waiting on a human is the entire point.
+#
+# Deliberately a single job (not matrixed per team like provision/destroy-teams.yml):
+# scripts/reap-teams.sh does its own enumeration, and destroys within a run
+# happen sequentially rather than in parallel jobs.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      ttl_minutes:
+        description: 'Override the TTL in minutes (for testing the reaper itself)'
+        required: false
+        type: string
+        default: '60'
+
+permissions:
+  contents: read
+
+concurrency:
+  # A slow run (lots of teams to destroy) must finish before the next
+  # scheduled tick starts - otherwise two reaper runs could both decide the
+  # same team is expired and race each other's terraform destroy.
+  group: ctf-reaper
+  cancel-in-progress: false
+
+jobs:
+  reap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write # required to fetch the OIDC token for AWS role assumption
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_OIDC_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Reap expired teams
+        run: ./scripts/reap-teams.sh "$((${{ inputs.ttl_minutes || 60 }} * 60))"

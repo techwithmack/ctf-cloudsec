@@ -43,20 +43,35 @@ provision "challenge-2-iac" "challenge2.$ZONE_NAME" "Challenge 2"
 echo
 echo "=== $TEAM_ID is ready ==="
 
+# In GitHub Actions, register each secret with the log masker *before* printing
+# it - masking only applies to lines emitted after the ::add-mask:: command, so
+# the value must never be echoed unmasked first. Outside CI this is a no-op.
+mask() {
+  if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    echo "::add-mask::$1"
+  fi
+}
+
 echo "--- Challenge 1 ---"
 (
   cd "$REPO_ROOT/challenge-1-iac"
   terraform workspace select "$TEAM_ID" >/dev/null
+  c1_flag="$(terraform output -raw qa_verification_flag)"
+  mask "$c1_flag"
   echo "URL:  $(terraform output -raw entrypoint_url)"
-  echo "Flag: $(terraform output -raw qa_verification_flag)"
+  echo "Flag: $c1_flag"
 )
 
 echo "--- Challenge 2 ---"
 (
   cd "$REPO_ROOT/challenge-2-iac"
   terraform workspace select "$TEAM_ID" >/dev/null
+  c2_password="$(terraform output -raw player_password)"
+  c2_flag="$(terraform output -raw qa_verification_flag)"
+  mask "$c2_password"
+  mask "$c2_flag"
   echo "URL:      $(terraform output -raw entrypoint_url)"
   echo "Username: $(terraform output -raw player_username)"
-  echo "Password: $(terraform output -raw player_password)"
-  echo "Flag:     $(terraform output -raw qa_verification_flag)"
+  echo "Password: $c2_password"
+  echo "Flag:     $c2_flag"
 )

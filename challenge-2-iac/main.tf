@@ -22,6 +22,18 @@ terraform {
       version = "~> 3.0"
     }
   }
+
+  # Remote state (see ci-bootstrap/) - required so both the CI workflows in
+  # .github/workflows/ and organizers' local machines see the same state for every
+  # team workspace. Workspaces are namespaced automatically under this key
+  # (env:/<workspace>/challenge-2/terraform.tfstate).
+  backend "s3" {
+    bucket         = "aikidoctf-terraform-state"
+    key            = "challenge-2/terraform.tfstate"
+    region         = "us-west-2"
+    dynamodb_table = "aikidoctf-terraform-locks"
+    encrypt        = true
+  }
 }
 
 provider "aws" {
@@ -103,34 +115,21 @@ data "aws_ecr_repository" "forgejo" {
 }
 
 # ---------------------------------------------------------------------------
-# The flag
+# The flag - generated once for the whole event in bootstrap/ (one shared
+# answer per challenge, not per team) and looked up read-only here, same
+# read-only-data-source pattern as every other bootstrap resource above.
 # ---------------------------------------------------------------------------
 
-resource "random_id" "flag_hex" {
-  byte_length = 16
+data "aws_secretsmanager_secret" "flag" {
+  name = "shadow-pipeline-flag"
 }
 
-locals {
-  generated_flag = "FLAG-${random_id.flag_hex.hex}"
-}
-
-resource "aws_secretsmanager_secret" "flag" {
-  name                    = "shadow-pipeline-flag-${var.team_id}"
-  recovery_window_in_days = 0 # allow immediate delete on team reset/teardown
-
-  tags = {
-    Challenge = "The Shadow Pipeline Overlord"
-    TeamID    = var.team_id
-  }
-}
-
-resource "aws_secretsmanager_secret_version" "flag" {
-  secret_id     = aws_secretsmanager_secret.flag.id
-  secret_string = local.generated_flag
+data "aws_secretsmanager_secret_version" "flag" {
+  secret_id = data.aws_secretsmanager_secret.flag.id
 }
 
 output "qa_verification_flag" {
-  value       = local.generated_flag
+  value       = data.aws_secretsmanager_secret_version.flag.secret_string
   description = "The generated flag for QA verification purposes."
   sensitive   = true
 }
@@ -343,7 +342,7 @@ resource "aws_ecs_task_definition" "forgejo" {
       { name = "PLAYER_USERNAME", value = "player" },
       { name = "PLAYER_PASSWORD", value = random_password.player.result },
       { name = "AWS_DEPLOY_ROLE_ARN", value = local.deploy_role_arn },
-      { name = "FLAG_SECRET_ID", value = aws_secretsmanager_secret.flag.arn },
+      { name = "FLAG_SECRET_ID", value = data.aws_secretsmanager_secret.flag.arn },
       { name = "AWS_REGION", value = var.aws_region },
       { name = "SSM_PARAM_NAME", value = local.ssm_param_name },
     ]
@@ -506,7 +505,7 @@ resource "aws_iam_role_policy" "deploy_secrets_read" {
     Statement = [{
       Effect   = "Allow"
       Action   = "secretsmanager:GetSecretValue"
-      Resource = aws_secretsmanager_secret.flag.arn
+      Resource = data.aws_secretsmanager_secret.flag.arn
     }]
   })
 }

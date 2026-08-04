@@ -7,6 +7,7 @@ RUN apk add --no-cache aws-cli jq
 
 COPY bootstrap.sh /bootstrap.sh
 COPY deploy-workflow.yml /deploy-workflow.yml
+COPY seed-repo/ /seed-repo/
 RUN chmod +x /bootstrap.sh
 
 ENTRYPOINT ["/bootstrap.sh"]
