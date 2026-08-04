@@ -237,7 +237,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
       "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes", "elasticloadbalancing:DescribeListeners",
       "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeTags",
-      "route53:GetHostedZone", "route53:ListHostedZones", "route53:ListHostedZonesByName", "route53:ListResourceRecordSets", "route53:GetChange",
+      "route53:GetHostedZone", "route53:ListHostedZones", "route53:ListHostedZonesByName", "route53:ListResourceRecordSets", "route53:GetChange", "route53:ListTagsForResource",
       "ecr:GetAuthorizationToken", "ecr:DescribeRepositories", "ecr:DescribeImages", "ecr:ListTagsForResource",
       "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
       "sts:GetCallerIdentity",
