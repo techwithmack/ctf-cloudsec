@@ -5,6 +5,21 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    # Not used by any resource here anymore (the flag moved to bootstrap/'s
+    # shared random_id) - kept declared, pinned, purely so any pre-existing
+    # team workspace that still has an orphaned random_id.flag_hex from
+    # before that change (the state has it, current config doesn't) can
+    # destroy it using this lockfile's pinned/cached provider instead of
+    # Terraform negotiating an unpinned version against the registry on the
+    # fly, found live to be considerably flakier ("Failed to load plugin
+    # schemas ... failed to instantiate provider ... unavailable" on 2 of 5
+    # team destroys, reproducibly, until this was pinned again). Safe to
+    # remove once every team has been through one full destroy/re-provision
+    # cycle under the shared-flag design.
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 
   # Remote state (see ci-bootstrap/) - required so both the CI workflows in
