@@ -132,10 +132,33 @@ data "aws_iam_policy_document" "github_actions_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
+    # The `repository` claim is the real security boundary here: a stable,
+    # ID-free `owner/repo` string, and all this needs anyway - no branch/ref
+    # restriction was ever intended (both apply and destroy workflows run from
+    # whatever the default branch is; the guardrail is the `destroy-approval`
+    # environment gate on destroy, not this trust policy).
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:repository"
+      values   = [var.github_repo]
+    }
+
+    # AWS requires a `sub` (or `job_workflow_ref`) condition that isn't
+    # wildcarded down to "match everything" - rejects the update otherwise
+    # ("MalformedPolicyDocument ... not scoped to all"). This is NOT the real
+    # access boundary (that's `repository` above) - it exists only to satisfy
+    # that requirement. GitHub's actual sub claim is
+    # `repo:{owner}@{owner_id}/{repo}@{repo_id}:ref:refs/heads/{branch}`
+    # (confirmed by decoding a real token live - NOT the plain
+    # `repo:{owner}/{repo}:ref:...` older docs/examples assume, which is why
+    # the original `repo:${var.github_repo}:*` pattern here silently matched
+    # nothing and every assume-role attempt failed with AccessDenied,
+    # regardless of branch). The owner/repo IDs are wildcarded since they're
+    # incidental to this account, not the actual thing being restricted.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:*"]
+      values   = ["repo:${split("/", var.github_repo)[0]}@*/${split("/", var.github_repo)[1]}@*:*"]
     }
   }
 }
