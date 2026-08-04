@@ -31,74 +31,21 @@ a Terraform workspace) that only reads the bootstrap's resources, never creates 
 routed via ALB host-header rules (`<team_id>.challenge1.aikidoctf.com` /
 `<team_id>.challenge2.aikidoctf.com`), not separate load balancers.
 
-### Managing teams (local)
+### Managing teams
 
+Full step-by-step organizer runbook (one-time setup, provisioning/destroying via GitHub Actions or
+local scripts, the 1-hour auto-expiry, reading a team's flag, troubleshooting): see
+**[PROVISIONING.md](PROVISIONING.md)**.
+
+Quick reference for anyone who just needs the commands:
 ```bash
-./scripts/add-team.sh <team_id>
+./scripts/add-team.sh <team_id>       # apply both challenges for one team, print URL/creds/flag
+./scripts/remove-team.sh <team_id>    # destroy both, delete the workspace (prompts unless --yes)
 ```
-
-Provisions (or re-applies) both challenges for that team and prints its URLs, credentials, and
-flag. Safe to re-run for an existing team_id. Requires both challenges' `bootstrap/` stacks to
-already be applied (once per event, not per team).
-
-```bash
-./scripts/remove-team.sh <team_id>
-```
-
-Tears a team down in both challenges and deletes its Terraform workspace. Prompts for
-confirmation unless run with `--yes`. A fresh `add-team.sh` afterward gives them a new flag.
-
-### Managing teams from GitHub Actions
-
-Both scripts above also run as GitHub Actions workflows, so organizers can spin up (or tear down)
-any number of teams' environments without a local AWS/Terraform setup.
-
-**One-time setup** (once per event, before the first workflow run):
-
-1. Apply the CI bootstrap stack — creates the shared Terraform state bucket/lock table and the
-   IAM role the workflows assume via GitHub OIDC (no long-lived AWS keys involved):
-   ```bash
-   cd ci-bootstrap
-   terraform init -input=false
-   terraform apply -auto-approve
-   terraform output provisioner_role_arn
-   ```
-2. Add that ARN as a repo secret named `AWS_GITHUB_OIDC_ROLE_ARN` (Settings → Secrets and
-   variables → Actions).
-3. Point both challenges at the new remote state bucket instead of local `.tfstate` files (one
-   time; existing `default` and `team-*` workspaces migrate in place, nothing is destroyed):
-   ```bash
-   cd challenge-1-iac && terraform init -migrate-state
-   cd ../challenge-2-iac && terraform init -migrate-state
-   ```
-4. Create a `destroy-approval` GitHub Environment (Settings → Environments → New environment)
-   and add at least one required reviewer. The destroy workflow won't run past that gate without
-   an approval, so a mistyped `team_id` can't accidentally tear down a live team mid-event.
-
-**Provisioning teams:** Actions → *Provision team environments* → Run workflow → enter one or
-more team IDs (comma and/or newline separated, e.g. `team-06, team-07, team-08`). Each team
-provisions as its own parallel job in both challenges.
-
-**Destroying teams:** Actions → *Destroy team environments* → Run workflow → same team ID input.
-Waits for a reviewer to approve the `destroy-approval` environment before anything is destroyed.
-
-Flag and player-password values are masked (`***`) in the workflow logs on purpose — these are
-the CTF's actual secrets, and Actions logs may be visible to repo collaborators who aren't
-supposed to see them. To read a specific team's flag for QA, pull it directly from the now-shared
-remote state instead:
-```bash
-cd challenge-1-iac && terraform workspace select <team_id> && terraform output -raw qa_verification_flag
-```
-
-**Environments auto-expire after 1 hour.** Since provisioning is self-serve, nothing else would
-otherwise tear a team down. *Reap expired team environments* runs every 5 minutes (Actions →
-that workflow → Run workflow if you want to trigger a pass manually), checks each active team's
-actual AWS-reported start time, and destroys anything past the limit the same way the manual
-destroy workflow does — no approval gate, since enforcing the TTL unattended is the point.
-
-**Flags are one per challenge, not one per team** — each challenge's `bootstrap/` stack generates
-a single flag for the whole event; every team's per-team stack just reads it. Re-running
-`add-team.sh`/the provision workflow for different teams never changes the answer.
+Both also run as GitHub Actions workflows (Actions → *Provision/Destroy team environments*), so
+organizers can manage teams without a local AWS/Terraform setup. Environments auto-expire after 1
+hour regardless of how they were provisioned, and both challenges' flags are shared per challenge,
+not unique per team.
 
 ---
 
