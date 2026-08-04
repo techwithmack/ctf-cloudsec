@@ -332,7 +332,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
       "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole",
       "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy",
       "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListAttachedRolePolicies", "iam:ListRolePolicies",
-      "iam:PassRole",
+      "iam:PassRole", "iam:ListInstanceProfilesForRole",
     ]
     resources = [
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aikido-ctf-*",
