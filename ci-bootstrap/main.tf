@@ -204,7 +204,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     actions = [
       "s3:CreateBucket", "s3:DeleteBucket", "s3:GetBucketPolicy", "s3:PutBucketPolicy",
       "s3:DeleteBucketPolicy", "s3:GetBucketPublicAccessBlock", "s3:PutBucketPublicAccessBlock",
-      "s3:GetBucketTagging", "s3:PutBucketTagging", "s3:ListBucket",
+      "s3:GetBucketTagging", "s3:PutBucketTagging", "s3:ListBucket", "s3:GetBucketAcl",
     ]
     resources = ["arn:aws:s3:::aikido-ctf-blueprint-backup-*"]
   }
@@ -235,7 +235,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
       "ec2:DescribeInstances", "ec2:DescribeNetworkInterfaces", "ec2:DescribeAvailabilityZones",
       "ec2:DescribeAccountAttributes", "ec2:DescribeTags",
       "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes", "elasticloadbalancing:DescribeListeners",
-      "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups",
+      "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTargetGroupAttributes",
       "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeTags",
       "route53:GetHostedZone", "route53:ListHostedZones", "route53:ListHostedZonesByName", "route53:ListResourceRecordSets", "route53:GetChange", "route53:ListTagsForResource",
       "ecr:GetAuthorizationToken", "ecr:DescribeRepositories", "ecr:DescribeImages", "ecr:ListTagsForResource",
