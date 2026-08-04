@@ -1,0 +1,23 @@
+name: Debug OIDC token claims (temporary)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Fetch and decode the OIDC token's claims
+        run: |
+          ID_TOKEN=$(curl -s -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r .value)
+          PAYLOAD=$(echo "$ID_TOKEN" | cut -d. -f2)
+          MOD=$(( ${#PAYLOAD} % 4 ))
+          if [ $MOD -ne 0 ]; then PAYLOAD="${PAYLOAD}$(printf '=%.0s' $(seq 1 $((4 - MOD))))"; fi
+          echo "$PAYLOAD" | tr '_-' '/+' | base64 -d | jq .
