@@ -591,8 +591,12 @@ resource "aws_instance" "runner" {
   # `apt-get install`/AWS CLI v2 download-and-unpack, found by live testing: a
   # real deploy run filled the disk mid-job ("no space left on device") and
   # Docker itself failed to set up the job container's pivot root as a result.
+  # 40GB, not just enough headroom over the 2GB default: this specific AMI's
+  # root snapshot is itself ~30GB, and EC2 rejects a root volume smaller than
+  # its source snapshot outright ("InvalidBlockDeviceMapping"), found by a
+  # second round of live testing after an initial 20GB attempt.
   root_block_device {
-    volume_size = 20
+    volume_size = 40
     volume_type = "gp3"
   }
 
