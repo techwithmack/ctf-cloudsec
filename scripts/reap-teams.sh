@@ -5,7 +5,13 @@
 # indefinitely). Intended to run on a schedule (see
 # .github/workflows/reap-teams.yml) but safe to run manually/locally too.
 #
-# Usage: scripts/reap-teams.sh [ttl_seconds]
+# Usage: scripts/reap-teams.sh [--list] [ttl_seconds]
+#
+# --list only prints expired team_ids (one per line, deduped, on stdout - all
+# other output goes to stderr) instead of destroying them. This backs
+# reap-teams.yml's prepare job, which matrixes the actual destroys one team
+# per job (see that workflow's comment for why: a single sequential job
+# destroying several teams routinely exceeded its own timeout).
 #
 # "Age" is read straight from AWS (each challenge's ECS service createdAt),
 # not from any timestamp Terraform tracks itself - a team's workspace has no
@@ -14,6 +20,12 @@
 # the same team_id), so its createdAt is exactly "how long has this
 # environment actually been live."
 set -euo pipefail
+
+LIST_ONLY=0
+if [ "${1:-}" = "--list" ]; then
+  LIST_ONLY=1
+  shift
+fi
 
 TTL_SECONDS="${1:-3600}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -59,13 +71,17 @@ reap_challenge() {
   for team in $(list_team_workspaces "$dir"); do
     age=$(service_age_seconds "${cluster_prefix}${team}" "${service_prefix}${team}")
     if [ -z "$age" ]; then
-      echo "  $team ($label): no active ECS service, skipping"
+      echo "  $team ($label): no active ECS service, skipping" >&2
       continue
     fi
 
-    echo "  $team ($label): ${age}s old"
+    echo "  $team ($label): ${age}s old" >&2
     if [ "$age" -ge "$TTL_SECONDS" ]; then
-      echo "  $team: past ${TTL_SECONDS}s TTL, destroying"
+      if [ "$LIST_ONLY" -eq 1 ]; then
+        echo "$team"
+        continue
+      fi
+      echo "  $team: past ${TTL_SECONDS}s TTL, destroying" >&2
       # Explicitly tested (not left to `set -e`) so one team's destroy
       # failure - e.g. a state lock held by a concurrent manual
       # provision/destroy run for the same team_id - doesn't abort the whole
@@ -78,14 +94,21 @@ reap_challenge() {
   done
 }
 
-echo "=== Reaping teams older than ${TTL_SECONDS}s ==="
-
 # Challenge 1 and Challenge 2 are provisioned together for a given team_id
 # (scripts/add-team.sh), but each challenge's TTL is checked independently -
 # remove-team.sh tears down both challenges for a team regardless of which
 # one's loop below triggers it, so a team destroyed via one challenge's check
-# simply won't appear in the other challenge's workspace listing.
-reap_challenge "challenge-1-iac" "aikido-ctf-cluster-" "entrypoint-service-" "challenge 1"
-reap_challenge "challenge-2-iac" "shadow-pipeline-cluster-" "forgejo-service-" "challenge 2"
-
-echo "=== Reap pass complete ==="
+# simply won't appear in the other challenge's workspace listing. In --list
+# mode the same team can therefore surface from both challenges' loops -
+# `sort -u` dedupes before the matrix job ever sees it.
+if [ "$LIST_ONLY" -eq 1 ]; then
+  {
+    reap_challenge "challenge-1-iac" "aikido-ctf-cluster-" "entrypoint-service-" "challenge 1"
+    reap_challenge "challenge-2-iac" "shadow-pipeline-cluster-" "forgejo-service-" "challenge 2"
+  } | sort -u
+else
+  echo "=== Reaping teams older than ${TTL_SECONDS}s ==="
+  reap_challenge "challenge-1-iac" "aikido-ctf-cluster-" "entrypoint-service-" "challenge 1"
+  reap_challenge "challenge-2-iac" "shadow-pipeline-cluster-" "forgejo-service-" "challenge 2"
+  echo "=== Reap pass complete ==="
+fi

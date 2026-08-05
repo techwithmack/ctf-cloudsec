@@ -267,6 +267,12 @@ resource "aws_lb_target_group" "app" {
   vpc_id      = data.aws_vpc.default.id
   target_type = "ip"
 
+  # AWS defaults this to 300s, which means every team destroy (including the
+  # 1-hour reaper) blocks on the ECS service waiting for the target to drain
+  # before it can deregister - short-lived CTF environments have no in-flight
+  # traffic worth draining, so cut this down to keep teardown fast.
+  deregistration_delay = 30
+
   health_check {
     path                = "/"
     matcher             = "200"

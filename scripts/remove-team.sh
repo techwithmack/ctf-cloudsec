@@ -27,6 +27,36 @@ if [ "$AUTO_YES" != "--yes" ]; then
   esac
 fi
 
+# Runs `terraform destroy`, tee-ing its output so callers still see live
+# progress. If it fails because a previous run left the state lock held (e.g.
+# a CI job that got killed by its own timeout mid-apply/destroy - this is not
+# hypothetical, see the 2026-08 reaper timeout incident), this parses the
+# Lock ID out of Terraform's own error message, force-unlocks it, and retries
+# exactly once - otherwise a single killed run permanently strands that
+# team_id until someone notices and force-unlocks it by hand.
+destroy_with_lock_retry() {
+  local log
+  log="$(mktemp)"
+  if terraform destroy -auto-approve "$@" 2>&1 | tee "$log"; then
+    rm -f "$log"
+    return 0
+  fi
+
+  local lock_id
+  if grep -q 'Error acquiring the state lock' "$log"; then
+    lock_id="$(grep -oE 'ID:[[:space:]]+[0-9a-fA-F-]+' "$log" | awk '{print $2}' | head -1)"
+  fi
+  rm -f "$log"
+
+  if [ -z "$lock_id" ]; then
+    return 1
+  fi
+
+  echo "Stale state lock $lock_id detected (left by a previous interrupted run) - force-unlocking and retrying once." >&2
+  terraform force-unlock -force "$lock_id"
+  terraform destroy -auto-approve "$@"
+}
+
 destroy() {
   local dir="$1" ctf_domain="$2" label="$3"
   echo "=== $label: destroying $TEAM_ID ==="
@@ -37,7 +67,7 @@ destroy() {
       echo "No workspace '$TEAM_ID' found in $dir - skipping."
       exit 0
     fi
-    terraform destroy -auto-approve \
+    destroy_with_lock_retry \
       -var="team_id=$TEAM_ID" \
       -var="zone_name=$ZONE_NAME" \
       -var="ctf_domain=$ctf_domain" \

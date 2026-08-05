@@ -8,9 +8,17 @@ name: Reap expired team environments
 # workflow. No destroy-approval gate here on purpose - enforcing the TTL
 # without waiting on a human is the entire point.
 #
-# Deliberately a single job (not matrixed per team like provision/destroy-teams.yml):
-# scripts/reap-teams.sh does its own enumeration, and destroys within a run
-# happen sequentially rather than in parallel jobs.
+# Matrixed per team (like destroy-teams.yml), NOT a single sequential job -
+# found live on 2026-08-04/05: a single job destroying N expired teams one
+# after another routinely blew past its own 30-minute timeout (each team's
+# Forgejo/EFS/EC2 teardown took several minutes), and when GitHub force-cancels
+# a job mid-`terraform destroy`, the DynamoDB state lock is never released,
+# permanently stranding that team until someone notices and force-unlocks it
+# by hand. Matrixing means one slow/stuck team can no longer starve every
+# other expired team of its own destroy window, and each matrix entry gets
+# its own timeout. scripts/remove-team.sh also now self-heals a stale lock
+# from a *previous* interrupted run (see its destroy_with_lock_retry), as a
+# second line of defense.
 
 on:
   schedule:
@@ -26,17 +34,12 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  # A slow run (lots of teams to destroy) must finish before the next
-  # scheduled tick starts - otherwise two reaper runs could both decide the
-  # same team is expired and race each other's terraform destroy.
-  group: ctf-reaper
-  cancel-in-progress: false
-
 jobs:
-  reap:
+  list-expired:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
+    outputs:
+      teams: ${{ steps.list.outputs.teams }}
     permissions:
       id-token: write # required to fetch the OIDC token for AWS role assumption
       contents: read
@@ -52,5 +55,41 @@ jobs:
         with:
           terraform_wrapper: false
 
-      - name: Reap expired teams
-        run: ./scripts/reap-teams.sh "$((${{ inputs.ttl_minutes || 60 }} * 60))"
+      - id: list
+        name: List expired teams
+        run: |
+          teams_json=$(./scripts/reap-teams.sh --list "$((${{ inputs.ttl_minutes || 60 }} * 60))" | jq -R . | jq -sc .)
+          echo "Expired teams: $teams_json"
+          echo "teams=$teams_json" >> "$GITHUB_OUTPUT"
+
+  reap:
+    needs: list-expired
+    if: needs.list-expired.outputs.teams != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write # required to fetch the OIDC token for AWS role assumption
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        team: ${{ fromJson(needs.list-expired.outputs.teams) }}
+    concurrency:
+      # Same group destroy-teams.yml/provision-teams.yml use for this team_id -
+      # guards against the reaper racing a concurrent manual provision/destroy.
+      group: ctf-team-${{ matrix.team }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_OIDC_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Destroy expired team ${{ matrix.team }}
+        run: ./scripts/remove-team.sh "${{ matrix.team }}" --yes
