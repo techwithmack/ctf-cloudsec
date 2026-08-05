@@ -479,6 +479,44 @@ resource "null_resource" "wait_for_forgejo_healthy" {
   }
 }
 
+# The ALB target-health check above only confirms Forgejo itself is up - it
+# says nothing about whether bootstrap.sh has actually finished provisioning
+# the repo, committing the deploy workflow, and protecting main. Found live:
+# a fresh team's `terraform apply` (and therefore add-team.sh) can return
+# success - handing out URL/credentials - tens of seconds before bootstrap.sh
+# reaches those steps, since seeding ~12 files and setting branch protection
+# takes real time after Forgejo's own HTTP server is already answering
+# requests. Not exploitable (a player racing that window just sees a
+# transiently-incomplete repo or an unprotected main), but a real correctness
+# gap for "ready" to mean "actually ready." Polls the same admin API
+# bootstrap.sh itself uses for the two concrete completion signals.
+resource "null_resource" "wait_for_bootstrap_complete" {
+  depends_on = [null_resource.wait_for_forgejo_healthy]
+
+  triggers = {
+    service = aws_ecs_service.forgejo.id
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -e
+      for i in $(seq 1 60); do
+        DEPLOY_FILE_STATUS=$(curl -s -o /dev/null -w "%%{http_code}" -u "ctfadmin:${random_password.admin.result}" \
+          "${local.forgejo_url}/api/v1/repos/${local.org_name}/${local.repo_name}/contents/.forgejo/workflows/deploy.yml?ref=main" || echo "000")
+        MAIN_PUSH_DISABLED=$(curl -s -u "ctfadmin:${random_password.admin.result}" \
+          "${local.forgejo_url}/api/v1/repos/${local.org_name}/${local.repo_name}/branch_protections/main" 2>/dev/null \
+          | jq -r '.enable_push == false' 2>/dev/null || echo "false")
+        if [ "$DEPLOY_FILE_STATUS" = "200" ] && [ "$MAIN_PUSH_DISABLED" = "true" ]; then
+          exit 0
+        fi
+        sleep 5
+      done
+      echo "Timed out waiting for bootstrap.sh to finish provisioning (deploy workflow commit / main branch protection)" >&2
+      exit 1
+    EOT
+  }
+}
+
 resource "aws_iam_openid_connect_provider" "forgejo" {
   url            = local.oidc_issuer
   client_id_list = ["sts.amazonaws.com"]

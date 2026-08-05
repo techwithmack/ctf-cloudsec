@@ -86,21 +86,25 @@ def portal():
       <h3>Auth Service</h3>
       <span class="status"><span class="dot"></span>Operational</span>
       <p>Handles SSO and session tokens.</p>
+      <p style="color:#9aa2ad">Last deploy: 2026-06-14 &middot; MERSYS-402</p>
     </div>
     <div class="card">
       <h3>Billing API</h3>
       <span class="status"><span class="dot"></span>Operational</span>
       <p>Internal usage metering.</p>
+      <p style="color:#9aa2ad">Last deploy: 2026-06-09 &middot; MERSYS-397</p>
     </div>
     <div class="card">
       <h3>Data Pipeline</h3>
       <span class="status"><span class="dot"></span>Operational</span>
       <p>Nightly ETL and reporting jobs.</p>
+      <p style="color:#9aa2ad">Last deploy: 2026-05-28 &middot; MERSYS-388</p>
     </div>
     <div class="card">
       <h3>Storage Ops</h3>
       <span class="status"><span class="dot"></span>Operational</span>
       <p>Backup scheduling and archival.</p>
+      <p style="color:#9aa2ad">Last deploy: 2026-06-02 &middot; MERSYS-441</p>
       <!-- TODO: remove before prod - forgotten backup bucket still wired up here: {TARGET_BUCKET_URL} -->
     </div>
   </div>

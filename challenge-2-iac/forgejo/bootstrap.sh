@@ -111,6 +111,21 @@ api_call "add player as collaborator" "" "${AUTH[@]}" -X PUT "${API}/repos/${ORG
   -H "Content-Type: application/json" \
   -d '{"permission": "write"}'
 
+# Realistic, occasionally ticket-referencing commit messages instead of a generic "Add <path>"
+# for every seeded file - makes `git log` read like actual engineering history rather than a
+# script's file dump. Falls back to the old generic message for anything not listed here, so
+# adding a new seed-repo file later doesn't require touching this.
+commit_message_for() {
+  case "$1" in
+    docs/ARCHITECTURE.md) echo "Document checkout-service architecture" ;;
+    docs/RUNBOOK.md) echo "Add on-call runbook" ;;
+    scripts/register-pipeline-secrets.sh) echo "Add pipeline secrets registration script (platform-team only)" ;;
+    .forgejo/workflows/ci.yml) echo "Add CI lint/test workflow" ;;
+    terraform/main.tf) echo "Add checkout-service ECS service Terraform" ;;
+    *) echo "Add ${1}" ;;
+  esac
+}
+
 # Seed the repo with realistic surrounding content (README, runbooks, a decoy CI workflow, flavor
 # Terraform for the fictional service, etc.) so the deploy workflow committed below isn't the only
 # file in the repo - a repo containing exactly one file is an obvious tell that undermines the
@@ -138,7 +153,7 @@ while IFS= read -r -d '' file; do
   fi
   api_call "seed ${rel_path}" "" "${AUTH[@]}" -X POST "${API}/repos/${ORG_NAME}/${REPO_NAME}/contents/${rel_path}" \
     -H "Content-Type: application/json" \
-    -d "{\"content\": \"${content_b64}\", \"message\": \"Add ${rel_path}\", \"branch\": \"main\"}"
+    -d "{\"content\": \"${content_b64}\", \"message\": \"$(commit_message_for "$rel_path")\", \"branch\": \"main\"}"
 done < <(find /seed-repo -type f -print0)
 
 # Both of the following use check-before-write rather than tolerating a
@@ -158,7 +173,7 @@ else
   WORKFLOW_B64=$(base64 /deploy-workflow.yml | tr -d '\n')
   api_call "commit deploy workflow" "" "${AUTH[@]}" -X POST "${API}/repos/${ORG_NAME}/${REPO_NAME}/contents/.forgejo/workflows/deploy.yml" \
     -H "Content-Type: application/json" \
-    -d "{\"content\": \"${WORKFLOW_B64}\", \"message\": \"Add deploy workflow\", \"branch\": \"main\"}"
+    -d "{\"content\": \"${WORKFLOW_B64}\", \"message\": \"Migrate deploy pipeline from Jenkins to Forgejo Actions (INFRA-71)\", \"branch\": \"main\"}"
 fi
 
 PROTECTION_STATUS=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" "${API}/repos/${ORG_NAME}/${REPO_NAME}/branch_protections/main")
@@ -169,6 +184,41 @@ else
   api_call "protect main branch" "" "${AUTH[@]}" -X POST "${API}/repos/${ORG_NAME}/${REPO_NAME}/branch_protections" \
     -H "Content-Type: application/json" \
     -d '{"rule_name": "main", "enable_push": false, "enable_merge_whitelist": true, "required_approvals": 1}'
+fi
+
+# A couple of stale/abandoned branches so the repo doesn't read as "exactly two branches, one of
+# them obviously the point of the challenge." Neither name matches deploy/** (deploy-workflow.yml's
+# trigger pattern), so creating them - or the extra commit on the feature branch below - never
+# fires the deploy pipeline itself.
+echo "[bootstrap] seeding a couple of stale branches for realism..."
+
+create_branch_if_missing() {
+  local branch="$1" status
+  status=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" "${API}/repos/${ORG_NAME}/${REPO_NAME}/branches/${branch}")
+  if [ "$status" = "200" ]; then
+    echo "[bootstrap] branch ${branch} already exists, skipping"
+    return 0
+  fi
+  api_call "create branch ${branch}" "" "${AUTH[@]}" -X POST "${API}/repos/${ORG_NAME}/${REPO_NAME}/branches" \
+    -H "Content-Type: application/json" \
+    -d "{\"new_branch_name\": \"${branch}\", \"old_branch_name\": \"main\"}"
+}
+
+create_branch_if_missing "release/2026.03-legacy"
+create_branch_if_missing "feature/checkout-retry-experiment"
+
+# Give the feature branch one small extra commit so it isn't just an identical pointer to main -
+# content-checked (not status-code-checked) for idempotency, since this PUTs to a file that already
+# exists on that branch.
+CURRENT_VARS=$(curl -s "${AUTH[@]}" "${API}/repos/${ORG_NAME}/${REPO_NAME}/raw/branch/feature/checkout-retry-experiment/terraform/variables.tf")
+if echo "$CURRENT_VARS" | grep -q "retry-storm"; then
+  echo "[bootstrap] retry-experiment tweak already committed, skipping"
+else
+  CURRENT_SHA=$(curl -s "${AUTH[@]}" "${API}/repos/${ORG_NAME}/${REPO_NAME}/contents/terraform/variables.tf?ref=feature/checkout-retry-experiment" | jq -r .sha)
+  EXPERIMENT_CONTENT_B64=$(sed 's/default = 2/default = 3 # bumping for the retry-storm load test - holding off on merge, costs too much per finance/' /seed-repo/terraform/variables.tf | base64 | tr -d '\n')
+  api_call "commit retry-experiment tweak" "" "${AUTH[@]}" -X PUT "${API}/repos/${ORG_NAME}/${REPO_NAME}/contents/terraform/variables.tf" \
+    -H "Content-Type: application/json" \
+    -d "{\"content\": \"${EXPERIMENT_CONTENT_B64}\", \"sha\": \"${CURRENT_SHA}\", \"message\": \"Bump desired_count for retry-storm load test\", \"branch\": \"feature/checkout-retry-experiment\"}"
 fi
 
 echo "[bootstrap] setting repo Action secrets..."

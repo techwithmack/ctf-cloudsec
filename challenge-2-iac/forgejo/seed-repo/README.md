@@ -1,7 +1,7 @@
 # infra
 
-Deployment pipeline and infrastructure definitions for the **checkout-service** production
-environment.
+Deployment pipeline and infrastructure definitions for Meridian Systems' **checkout-service**
+production environment.
 
 ## What's in here
 

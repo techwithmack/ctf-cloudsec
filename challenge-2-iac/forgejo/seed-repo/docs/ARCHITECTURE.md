@@ -1,7 +1,7 @@
 # checkout-service — Architecture
 
-checkout-service is a containerized checkout API fronted by an ALB, running on ECS Fargate. See
-`terraform/` for the exact resource definitions.
+checkout-service is Meridian Systems' containerized checkout API, fronted by an ALB and running on
+ECS Fargate. See `terraform/` for the exact resource definitions.
 
 ```
 [ ALB ] -> [ ECS Service: checkout-service ] -> [ RDS: checkout-db ]
