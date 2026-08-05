@@ -86,9 +86,9 @@ resource "aws_s3_bucket_public_access_block" "allow_public" {
   bucket = aws_s3_bucket.leaky_bucket.id
 
   block_public_acls       = false
-  block_public_policy     = false  # Singular
+  block_public_policy     = false # Singular
   ignore_public_acls      = false
-  restrict_public_buckets = false  # Plural
+  restrict_public_buckets = false # Plural
 }
 
 # 3. Apply the flawed, overly permissive public read policy (The Core Vulnerability)
@@ -166,7 +166,7 @@ EOF
 output "qa_verification_flag" {
   value       = local.generated_flag
   description = "The generated flag for QA verification purposes."
-  sensitive   = true 
+  sensitive   = true
 }
 
 # 5. Create an ECS Cluster for hosting the entry point container

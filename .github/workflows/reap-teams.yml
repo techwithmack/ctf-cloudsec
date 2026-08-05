@@ -58,7 +58,12 @@ jobs:
       - id: list
         name: List expired teams
         run: |
-          teams_json=$(./scripts/reap-teams.sh --list "$((${{ inputs.ttl_minutes || 60 }} * 60))" | jq -R . | jq -sc .)
+          ttl_minutes="${{ inputs.ttl_minutes || 60 }}"
+          if ! [[ "$ttl_minutes" =~ ^[0-9]+$ ]]; then
+            echo "::error::ttl_minutes must be a non-negative integer, got: $ttl_minutes" >&2
+            exit 1
+          fi
+          teams_json=$(./scripts/reap-teams.sh --list "$((ttl_minutes * 60))" | jq -R . | jq -sc .)
           echo "Expired teams: $teams_json"
           echo "teams=$teams_json" >> "$GITHUB_OUTPUT"
 

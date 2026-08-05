@@ -22,6 +22,29 @@ TEAM_ID="$1"
 ZONE_NAME="aikidoctf.com"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Retries `terraform apply` a few times on failure. Real-world trigger: both
+# challenges' shared-ALB listener rules deliberately omit `priority` (see that
+# resource's own comment) so AWS assigns the next free one - under enough
+# concurrent team provisions (provision-teams.yml matrixes many teams at
+# once), two applies can race for the same priority and exceed the AWS
+# provider's own retry budget. A rerun succeeds trivially once the other
+# team's rule already exists, so a bounded retry here is simpler and more
+# robust than hand-rolling a distributed lock for what's fundamentally a
+# transient conflict.
+apply_with_retry() {
+  local attempt
+  for attempt in 1 2 3; do
+    if terraform apply -auto-approve "$@"; then
+      return 0
+    fi
+    if [ "$attempt" -lt 3 ]; then
+      echo "terraform apply failed (attempt $attempt/3) - retrying in 10s, likely a transient AWS API conflict (e.g. ALB listener rule priority)" >&2
+      sleep 10
+    fi
+  done
+  return 1
+}
+
 provision() {
   local dir="$1" ctf_domain="$2" label="$3"
   echo "=== $label: provisioning $TEAM_ID ==="
@@ -29,7 +52,7 @@ provision() {
     cd "$REPO_ROOT/$dir"
     terraform init -input=false >/dev/null
     terraform workspace select "$TEAM_ID" 2>/dev/null || terraform workspace new "$TEAM_ID"
-    terraform apply -auto-approve \
+    apply_with_retry \
       -var="team_id=$TEAM_ID" \
       -var="zone_name=$ZONE_NAME" \
       -var="ctf_domain=$ctf_domain" \

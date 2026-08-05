@@ -7,8 +7,9 @@
 - Add retry/backoff to the DB connection pool (INFRA-88)
 
 ## 2026-05-05
-- Branch protection audit: main is covered; flagged deploy/* as still open (INFRA-142) -
-  deprioritized since only release-eng cuts those branches today
+- Repo hardening pass (INFRA-142): applied the platform security review's push/merge
+  restrictions to main; release-branch coverage tracked as a follow-up, not urgent given
+  current usage
 
 ## 2026-04-30
 - Migrate deploy pipeline from Jenkins to Forgejo Actions (INFRA-71)

@@ -260,7 +260,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
   statement {
     sid       = "EcsClusterAndTaskDef"
     effect    = "Allow"
-    actions   = ["ecs:CreateCluster", "ecs:DeleteCluster", "ecs:RegisterTaskDefinition", "ecs:DeregisterTaskDefinition", "ecs:TagResource"]
+    actions   = ["ecs:CreateCluster", "ecs:DeleteCluster", "ecs:RegisterTaskDefinition", "ecs:DeregisterTaskDefinition", "ecs:TagResource", "ecs:UntagResource"]
     resources = ["*"]
   }
 
@@ -329,7 +329,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     sid    = "IamRoles"
     effect = "Allow"
     actions = [
-      "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole",
+      "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole", "iam:UntagRole",
       "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy",
       "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListAttachedRolePolicies", "iam:ListRolePolicies",
       "iam:PassRole", "iam:ListInstanceProfilesForRole",
@@ -353,7 +353,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
   statement {
     sid       = "IamOidcProviderPerTeam"
     effect    = "Allow"
-    actions   = ["iam:CreateOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider", "iam:GetOpenIDConnectProvider", "iam:TagOpenIDConnectProvider", "iam:UpdateOpenIDConnectProviderThumbprint"]
+    actions   = ["iam:CreateOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider", "iam:GetOpenIDConnectProvider", "iam:TagOpenIDConnectProvider", "iam:UntagOpenIDConnectProvider", "iam:UpdateOpenIDConnectProviderThumbprint"]
     resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/*"]
   }
 
@@ -366,7 +366,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     actions = [
       "secretsmanager:CreateSecret", "secretsmanager:DeleteSecret", "secretsmanager:DescribeSecret",
       "secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:TagResource",
-      "secretsmanager:GetResourcePolicy",
+      "secretsmanager:UntagResource", "secretsmanager:GetResourcePolicy",
     ]
     resources = ["arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:shadow-pipeline-flag-*"]
   }
@@ -376,7 +376,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     effect = "Allow"
     actions = [
       "ssm:PutParameter", "ssm:GetParameter", "ssm:DeleteParameter", "ssm:AddTagsToResource",
-      "ssm:ListTagsForResource",
+      "ssm:RemoveTagsFromResource", "ssm:ListTagsForResource",
     ]
     resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/ctf/challenge2/*"]
   }
@@ -410,7 +410,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     actions = [
       "elasticfilesystem:CreateFileSystem", "elasticfilesystem:DeleteFileSystem", "elasticfilesystem:DescribeFileSystems",
       "elasticfilesystem:CreateMountTarget", "elasticfilesystem:DeleteMountTarget", "elasticfilesystem:DescribeMountTargets",
-      "elasticfilesystem:TagResource", "elasticfilesystem:DescribeTags", "elasticfilesystem:DescribeLifecycleConfiguration",
+      "elasticfilesystem:TagResource", "elasticfilesystem:UntagResource", "elasticfilesystem:DescribeTags", "elasticfilesystem:DescribeLifecycleConfiguration",
       "elasticfilesystem:DescribeMountTargetSecurityGroups",
     ]
     resources = ["*"] # EFS file-system IDs are only known after creation
@@ -424,7 +424,7 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     # AWS evaluated it against a malformed pseudo-ARN, not this log group's
     # real one, and denied regardless) - granted "*"-scoped in
     # ReadOnlyDescribe above instead.
-    actions   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "logs:ListTagsForResource"]
+    actions   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "logs:UntagResource", "logs:ListTagsForResource"]
     resources = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/shadow-pipeline-forgejo-*"]
   }
 }

@@ -107,21 +107,23 @@ terraform output player_password     # sensitive - terraform output -raw player_
 
 ## 6. Scaling to multiple teams
 
-Repeat step 4 once per team (`-var="team_id=<team>"`), all against the same bootstrap stack from
-step 2 — you only do steps 2–3 once, ever, regardless of team count.
-
-**Important:** as written, every team's `terraform apply` runs against the *same* local state file
-in `challenge-2-iac/`. Running two teams' applies from one directory will conflict. Before scaling
-past one or two teams, either use a separate `terraform workspace` per team, or a separate state
-key (e.g. an S3 backend with `-backend-config="key=team-<id>/terraform.tfstate"`) per team — same
-caveat as Challenge 1, just more consequential here given the heavier per-team resource count.
+Don't repeat step 4 by hand per team — use `scripts/add-team.sh <team_id>` (or the
+`provision-teams.yml` GitHub Actions workflow for many teams at once, see `PROVISIONING.md`).
+Both already select/create a Terraform **workspace** per `team_id` against the shared S3 backend
+(`ci-bootstrap/`) before applying, so concurrent teams never touch the same state - the "same local
+state file" conflict this section used to warn about was true before that migration, and no longer
+applies. You only run steps 2-3 once, ever, regardless of team count; step 4's raw `terraform
+apply` above is still correct as a reference for what the script does under the hood, and useful
+for debugging one team's stack directly.
 
 ## 7. Teardown
 
-Per team:
+Use `scripts/remove-team.sh <team_id>` (handles both challenges' workspaces, and self-heals a
+stale state lock left by a prior interrupted run). Per-team, by hand:
 
 ```bash
 cd challenge-2-iac
+terraform workspace select <team_id>
 terraform destroy -var="team_id=<team>" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
 ```
 

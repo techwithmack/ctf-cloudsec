@@ -4,7 +4,7 @@ difficulty: High
 author: Aikido Security
 points: 450
 entrypoint: https://<team_id>.<ctf_domain>
-flag_format: FLAG-{32hexadecimal/alphanumeric}
+flag_format: FLAG-{32 hexadecimal characters}
 estimated_solve_time: 75m
 expected_steps: 4
 tags:
