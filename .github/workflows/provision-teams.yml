@@ -13,6 +13,10 @@ on:
         description: 'Team IDs to provision, comma and/or newline separated (e.g. "team-01, team-02, team-03")'
         required: true
         type: string
+      challenge_request_id:
+        description: "Unique request ID for correlation"
+        required: true
+        type: string
 
 permissions:
   contents: read
