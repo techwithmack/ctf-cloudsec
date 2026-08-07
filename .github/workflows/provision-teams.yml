@@ -6,6 +6,8 @@ name: Provision team environments
 # once (remote state bucket/lock table + the OIDC role this workflow assumes) and
 # both challenges' bootstrap/ stacks to already be applied - see README.md.
 
+run-name: Provision ${{ inputs.team_ids }} (request ${{ inputs.challenge_request_id }})
+
 on:
   workflow_dispatch:
     inputs:
@@ -14,7 +16,7 @@ on:
         required: true
         type: string
       challenge_request_id:
-        description: "Unique request ID for correlation"
+        description: 'Unique request ID for correlation'
         required: true
         type: string
 
@@ -36,9 +38,11 @@ jobs:
             | grep -v '^$' \
             | jq -R . | jq -sc .)
           echo "Teams: $teams_json"
+          echo "Request ID: $CHALLENGE_REQUEST_ID"
           echo "teams=$teams_json" >> "$GITHUB_OUTPUT"
         env:
           TEAM_IDS: ${{ inputs.team_ids }}
+          CHALLENGE_REQUEST_ID: ${{ inputs.challenge_request_id }}
 
   provision:
     needs: prepare
