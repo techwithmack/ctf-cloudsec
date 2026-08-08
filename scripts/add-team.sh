@@ -31,16 +31,44 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # team's rule already exists, so a bounded retry here is simpler and more
 # robust than hand-rolling a distributed lock for what's fundamentally a
 # transient conflict.
+#
+# Also self-heals a stale state lock, the same way remove-team.sh's
+# destroy_with_lock_retry already does for destroys: provision-teams.yml's own
+# 30-minute job timeout can force-cancel a slow apply (Forgejo health-wait
+# loops, EC2 capacity retries, etc.) mid-write, which kills the process before
+# Terraform's deferred unlock runs and strands the lock in DynamoDB. Without
+# this, every later provision attempt for that team_id fails instantly with
+# "Error acquiring the state lock" forever, since a plain retry does nothing
+# against a lock that's still held - confirmed live across several teams'
+# state during this event before this fix (see the 2026-08-08 incident with
+# CTF Ops/Techops).
 apply_with_retry() {
-  local attempt
-  for attempt in 1 2 3; do
-    if terraform apply -auto-approve "$@"; then
+  local attempt=1
+  while [ "$attempt" -le 3 ]; do
+    local log
+    log="$(mktemp)"
+    if terraform apply -auto-approve "$@" 2>&1 | tee "$log"; then
+      rm -f "$log"
       return 0
     fi
+
+    local lock_id=""
+    if grep -q 'Error acquiring the state lock' "$log"; then
+      lock_id="$(grep -oE 'ID:[[:space:]]+[0-9a-fA-F-]+' "$log" | awk '{print $2}' | head -1)"
+    fi
+    rm -f "$log"
+
+    if [ -n "$lock_id" ]; then
+      echo "Stale state lock $lock_id detected (left by a previous interrupted apply) - force-unlocking and retrying." >&2
+      terraform force-unlock -force "$lock_id"
+      continue # a deterministic fix, not a flaky retry - doesn't count against the attempt budget below
+    fi
+
     if [ "$attempt" -lt 3 ]; then
       echo "terraform apply failed (attempt $attempt/3) - retrying in 10s, likely a transient AWS API conflict (e.g. ALB listener rule priority)" >&2
       sleep 10
     fi
+    attempt=$((attempt + 1))
   done
   return 1
 }
