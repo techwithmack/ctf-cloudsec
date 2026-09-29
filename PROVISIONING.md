@@ -69,6 +69,17 @@ Then:
 Once this is done, anyone with write access to the repo can provision/destroy teams from the
 Actions tab without ever touching AWS credentials directly.
 
+### 3. `CTF_BRIDGE_WEBHOOK_URL` / `CTF_BRIDGE_WEBHOOK_SECRET` (only for self-service provisioning)
+
+Optional. If set, `provision-teams.yml`'s "Notify bridge" step POSTs each provisioned team's URLs
+and Challenge 2 credentials (never the flag) to `CTF_BRIDGE_WEBHOOK_URL` as JSON, signed with
+`CTF_BRIDGE_WEBHOOK_SECRET` via `X-Signature-256: sha256=<hmac-sha256 hex>` — the same convention
+GitHub itself uses for webhook signing. Lets an external self-service bridge (e.g. a CTFd
+integration that dispatches this workflow on a player's behalf) receive results without scraping
+Actions logs, which are partially masked on purpose (see `scripts/add-team.sh`). Leave both unset
+to keep this workflow purely organizer-triggered — the step skips cleanly when
+`CTF_BRIDGE_WEBHOOK_URL` is empty.
+
 ---
 
 ## Provisioning a team

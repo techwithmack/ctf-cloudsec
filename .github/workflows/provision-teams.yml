@@ -30,13 +30,26 @@ jobs:
       teams: ${{ steps.parse.outputs.teams }}
     steps:
       - id: parse
-        name: Parse team_ids into a JSON list
+        name: Parse and validate team_ids into a JSON list
         run: |
           teams_json=$(printf '%s' "$TEAM_IDS" \
             | tr ',' '\n' \
             | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
             | grep -v '^$' \
             | jq -R . | jq -sc .)
+
+          # team_id flows straight into a Terraform workspace name, an ALB
+          # host-header rule, and a DNS subdomain. This was fine when only an
+          # organizer typed team names by hand; now that an external bridge
+          # can dispatch this workflow on a player's behalf, reject anything
+          # that isn't a safe token before it reaches Terraform.
+          invalid=$(printf '%s' "$teams_json" | jq -r '.[] | select(test("^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$") | not)')
+          if [ -n "$invalid" ]; then
+            echo "Invalid team_id(s) - must match ^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?\$ :" >&2
+            echo "$invalid" >&2
+            exit 1
+          fi
+
           echo "Teams: $teams_json"
           echo "Request ID: $CHALLENGE_REQUEST_ID"
           echo "teams=$teams_json" >> "$GITHUB_OUTPUT"
@@ -74,4 +87,42 @@ jobs:
           terraform_wrapper: false
 
       - name: Provision ${{ matrix.team }}
+        id: provision
         run: ./scripts/add-team.sh "${{ matrix.team }}"
+
+      - name: Notify bridge
+        # Skips cleanly until CTF_BRIDGE_WEBHOOK_URL is configured, so this is
+        # safe to ship before Cloud Village's endpoint is ready. success() is
+        # explicit here because setting any `if:` replaces the step's default
+        # "only run if the job hasn't already failed" check, not ANDs with it.
+        if: ${{ success() && secrets.CTF_BRIDGE_WEBHOOK_URL != '' }}
+        env:
+          WEBHOOK_URL: ${{ secrets.CTF_BRIDGE_WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.CTF_BRIDGE_WEBHOOK_SECRET }}
+          TEAM_ID: ${{ matrix.team }}
+          REQUEST_ID: ${{ inputs.challenge_request_id }}
+          CHALLENGE1_URL: ${{ steps.provision.outputs.challenge1_url }}
+          CHALLENGE2_URL: ${{ steps.provision.outputs.challenge2_url }}
+          CHALLENGE2_USERNAME: ${{ steps.provision.outputs.challenge2_username }}
+          CHALLENGE2_PASSWORD: ${{ steps.provision.outputs.challenge2_password }}
+        run: |
+          payload=$(jq -nc \
+            --arg team_id "$TEAM_ID" \
+            --arg request_id "$REQUEST_ID" \
+            --arg c1_url "$CHALLENGE1_URL" \
+            --arg c2_url "$CHALLENGE2_URL" \
+            --arg c2_username "$CHALLENGE2_USERNAME" \
+            --arg c2_password "$CHALLENGE2_PASSWORD" \
+            '{team_id:$team_id, challenge_request_id:$request_id,
+              challenge1:{url:$c1_url},
+              challenge2:{url:$c2_url, username:$c2_username, password:$c2_password}}')
+
+          # HMAC-SHA256 over the raw body, hex-encoded, same convention as
+          # GitHub's own webhook signing - Cloud Village verifies this against
+          # CTF_BRIDGE_WEBHOOK_SECRET before trusting the payload.
+          signature=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | sed 's/^.* //')
+
+          curl -sf --retry 3 --retry-delay 5 -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Signature-256: sha256=$signature" \
+            -d "$payload"
