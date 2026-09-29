@@ -211,20 +211,3 @@ this up front (e.g. "this environment expires in 60 minutes; if you need more ti
 again"). Re-requesting gives Challenge 2 a fresh EFS volume, but per #2, credentials for a team_id
 that's mid-lifetime don't change on a re-apply — only a full destroy+reprovision resets them, and
 self-service never triggers a destroy.
-
----
-
-## Quick checklist to send back to us
-
-- [ ] Fine-grained PAT created under `maxdotdotg` (Actions: read/write only, this repo only,
-      expiring), stored in a secrets manager on your end
-- [ ] Confirmed: `team_id` is derived from authenticated CTFd identity server-side, never from
-      client input
-- [ ] Confirmed: dispatch always sends `ref: "main"`
-- [ ] Webhook URL (https) ready to receive our signed POST
-- [ ] Confirmed: your endpoint verifies `X-Signature-256` before trusting the payload
-- [ ] Confirmed: debounce/dedup behavior for repeated player requests
-- [ ] Expected concurrent-player volume shared with us
-
-Once these are checked off, set `CTF_BRIDGE_WEBHOOK_URL` (ask Mackenzie to add it as a repo
-secret) and we're live end to end.
