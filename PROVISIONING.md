@@ -80,6 +80,30 @@ Actions logs, which are partially masked on purpose (see `scripts/add-team.sh`).
 to keep this workflow purely organizer-triggered — the step skips cleanly when
 `CTF_BRIDGE_WEBHOOK_URL` is empty.
 
+`CTF_BRIDGE_WEBHOOK_SECRET` is already set as of 2026-09-29. `CTF_BRIDGE_WEBHOOK_URL` is **not
+set yet** — the notify step will keep skipping cleanly (silently, by design) until it is. See
+**[BRIDGE_INTEGRATION.md](BRIDGE_INTEGRATION.md)** for the full contract with Cloud Village's
+bridge, including the hard requirements around token scope and identity-to-`team_id` binding — read
+that before enabling self-service for real, not just this section.
+
+### 4. `ORGANIZER_GITHUB_LOGINS` repo variable (organizer allowlist)
+
+A comma-separated list of GitHub usernames allowed to manually dispatch `destroy-teams.yml` or
+`reap-teams.yml` (**Settings → Secrets and variables → Actions → Variables**). Any other actor
+attempting a manual dispatch of either — including a self-service bridge's token, which only needs
+"Actions: write" to dispatch *any* workflow in this repo, not just `provision-teams.yml` — is
+rejected before any AWS credentials are touched. Currently set to `techwithmack` only.
+
+**This is deliberately not "every repo collaborator."** `maxdotdotg` is a repo collaborator (Write
+access, needed so its PAT can dispatch `provision-teams.yml` at all) but is Jayesh/Cloud Village's
+self-service bridge identity — exactly the actor this allowlist exists to keep out of destroy/reap.
+Having repo access and being an organizer trusted to manually destroy teams are two different
+things; don't collapse them back into one list when updating this later.
+
+The scheduled reaper run (cron) is never affected by this — it has no "actor" to check and must
+never be blocked. Update this variable if the *organizer* roster changes (not the collaborator
+roster); there's no code change needed.
+
 ---
 
 ## Provisioning a team
@@ -185,6 +209,24 @@ Either `ci-bootstrap` hasn't been applied (the state bucket doesn't exist), or t
 It's waiting on `destroy-approval` environment review — someone with reviewer access needs to
 approve the run in the Actions UI.
 
+**Destroy or reap workflow fails instantly with "Manual dispatch of this workflow is restricted
+to organizers."**
+The account that dispatched it isn't on the `ORGANIZER_GITHUB_LOGINS` repo variable. This is
+intentional — see [ORGANIZER_GITHUB_LOGINS](#4-organizer_github_logins-repo-variable-organizer-allowlist)
+above. Add the account to that variable if it genuinely should be able to trigger these, or use one
+of the accounts already listed there.
+
+**Provision workflow fails instantly with "Refusing to provision N teams in one dispatch."**
+More than 20 `team_ids` were sent in a single dispatch — a deliberate cap (see
+`provision-teams.yml`'s `prepare` job). Split into multiple dispatches, or ask Mackenzie to raise
+the cap deliberately if a legitimate use case needs it regularly.
+
+**A team's Challenge 2 password came back identical after re-requesting through the bridge.**
+Expected, and important for anyone building on top of self-service to know — see
+[BRIDGE_INTEGRATION.md](BRIDGE_INTEGRATION.md#2-identity-to-team_id-binding--this-is-the-important-one).
+Re-provisioning an existing `team_id` is a plain Terraform re-apply, not a reset; it doesn't rotate
+`random_password.player`.
+
 **I ran provision twice for the same `team_id` — did that break anything?**
 No. It's idempotent — Terraform only replaces resources that actually need replacing. Re-running
 provisioning is the normal way to "reset" a team.
@@ -203,7 +245,14 @@ it if you need it to keep running.
 
 - **Provisioning/destroying via Actions:** needs write access to the repo (to trigger
   `workflow_dispatch`).
+- **Manually dispatching destroy or reap:** additionally needs to be on the
+  `ORGANIZER_GITHUB_LOGINS` repo variable — see
+  [ORGANIZER_GITHUB_LOGINS](#4-organizer_github_logins-repo-variable-organizer-allowlist) above.
+  Repo admins can still push directly to `main` past branch protection in an emergency
+  (`enforce_admins: false`), but this allowlist applies regardless of admin status.
 - **Approving a destroy:** needs to be listed as a required reviewer on the `destroy-approval`
   GitHub Environment (**Settings → Environments**).
+- **Merging to `main`:** needs one approving review from another collaborator (branch protection,
+  added 2026-09-29) — repo admins can bypass in an emergency, non-admins cannot.
 - **Local scripts:** needs AWS credentials with access to the account both challenges run in, plus
   Terraform installed.

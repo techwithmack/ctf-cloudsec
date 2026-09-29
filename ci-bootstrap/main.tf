@@ -81,6 +81,10 @@ resource "aws_dynamodb_table" "tf_lock" {
     name = "LockID"
     type = "S"
   }
+
+  point_in_time_recovery {
+    enabled = true
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -280,10 +284,12 @@ data "aws_iam_policy_document" "provisioner_permissions" {
     ]
   }
 
-  # EC2 security groups + the Challenge 2 CI runner instance. RunInstances requires
-  # broad resource coverage across instance/image/subnet/sg/volume/network-interface
-  # ARNs to work at all, so it's scoped to "*" rather than an incomplete fake
-  # restriction.
+  # EC2 security groups + instance lifecycle actions other than launch. These
+  # require broad resource coverage to work at all (security group rules and
+  # instance IDs aren't known ahead of creation), so scoped to "*" rather than
+  # an incomplete fake restriction. RunInstances itself is deliberately split
+  # into its own statement below, with real conditions - unlike these, it can
+  # *create* new billable resources, so it gets tighter treatment.
   statement {
     sid    = "Ec2Write"
     effect = "Allow"
@@ -292,10 +298,40 @@ data "aws_iam_policy_document" "provisioner_permissions" {
       "ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress",
       "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress",
       "ec2:CreateTags", "ec2:DeleteTags",
-      "ec2:RunInstances", "ec2:TerminateInstances", "ec2:StopInstances",
+      "ec2:TerminateInstances", "ec2:StopInstances",
       "ec2:ModifyInstanceAttribute",
     ]
     resources = ["*"]
+  }
+
+  # RunInstances requires broad resource coverage across instance/image/subnet/
+  # sg/volume/network-interface ARNs to work at all - AWS evaluates ALL of those
+  # sub-resource ARNs against the policy for a single RunInstances call, so
+  # resources = ["*"] here is a real AWS requirement, not laziness. What we can
+  # (and now do) constrain is the *content* of the call: only the runner's own
+  # instance family/size, and only AMIs owned by Amazon or by this account - not
+  # an arbitrary/attacker-supplied third-party AMI. This is the control that
+  # actually bounds cost-abuse blast radius if this role's credentials were ever
+  # misused, since the resource-ARN wildcard above can't. Extend the instance
+  # type list deliberately if challenge-2-iac's runner_instance_type variable
+  # ever needs a bigger family - don't widen this to "*" to make an error go away.
+  statement {
+    sid       = "Ec2RunInstancesConstrained"
+    effect    = "Allow"
+    actions   = ["ec2:RunInstances"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:InstanceType"
+      values   = ["t3.micro", "t3.small", "t3.medium", "t3.large"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:Owner"
+      values   = ["amazon", "self"]
+    }
   }
 
   # Shared ALB listener rules + per-team target groups

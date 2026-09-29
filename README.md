@@ -37,6 +37,10 @@ Full step-by-step organizer runbook (one-time setup, provisioning/destroying via
 local scripts, the 1-hour auto-expiry, reading a team's flag, troubleshooting): see
 **[PROVISIONING.md](PROVISIONING.md)**.
 
+Wiring an external self-service bridge (CTFd auth → GitHub Actions → player) in front of
+provisioning? See **[BRIDGE_INTEGRATION.md](BRIDGE_INTEGRATION.md)** for the contract, the hard
+security requirements, and what we need from whoever's building it before it goes live.
+
 Quick reference for anyone who just needs the commands:
 ```bash
 ./scripts/add-team.sh <team_id>       # apply both challenges for one team, print URL/creds/flag

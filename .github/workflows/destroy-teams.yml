@@ -17,7 +17,39 @@ permissions:
   contents: read
 
 jobs:
+  authorize:
+    # workflow_dispatch can be triggered by anyone/anything holding a token
+    # with write access to this repo - that now includes an external
+    # self-service bridge's PAT (see BRIDGE_INTEGRATION.md), which only needs
+    # Actions:write to dispatch, and GitHub has no way to scope that token to
+    # "only provision-teams.yml". This gate blocks every other actor before
+    # any AWS credentials are touched or a reviewer is even paged via
+    # destroy-approval, so a bridge token (leaked, misused, or just pointed at
+    # the wrong workflow by a bug) can queue a destroy at most - it can never
+    # get past this job. `vars.ORGANIZER_GITHUB_LOGINS` is a comma-separated
+    # allowlist (repo Settings > Secrets and variables > Actions > Variables);
+    # falls back to just the repo owner if unset. Do NOT default this to every
+    # current collaborator - `maxdotdotg` is a repo collaborator (Write access,
+    # needed so its PAT can dispatch provision-teams.yml at all) but is Jayesh
+    # /Cloud Village's self-service bridge identity, i.e. exactly the actor
+    # this guard exists to keep out of this workflow. "has repo access" and
+    # "is an organizer allowed to destroy teams" are not the same set.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify dispatch actor is an authorized organizer
+        env:
+          ACTOR: ${{ github.actor }}
+          ALLOWED: ${{ vars.ORGANIZER_GITHUB_LOGINS }}
+        run: |
+          allowed="${ALLOWED:-techwithmack}"
+          if ! printf '%s' "$allowed" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -qxF "$ACTOR"; then
+            echo "::error::Manual dispatch of this workflow is restricted to organizers ($allowed). Actor '$ACTOR' is not authorized." >&2
+            exit 1
+          fi
+          echo "Dispatch authorized for $ACTOR"
+
   prepare:
+    needs: authorize
     runs-on: ubuntu-latest
     outputs:
       teams: ${{ steps.parse.outputs.teams }}
@@ -54,14 +86,17 @@ jobs:
       group: ctf-team-${{ matrix.team }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      # Pinned to commit SHA - see the matching comment in provision-teams.yml.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # this job never pushes back to git
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_GITHUB_OIDC_ROLE_ARN }}
           aws-region: us-west-2
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
 
