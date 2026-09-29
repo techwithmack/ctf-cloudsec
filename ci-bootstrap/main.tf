@@ -315,23 +315,62 @@ data "aws_iam_policy_document" "provisioner_permissions" {
   # misused, since the resource-ARN wildcard above can't. Extend the instance
   # type list deliberately if challenge-2-iac's runner_instance_type variable
   # ever needs a bigger family - don't widen this to "*" to make an error go away.
+  # A single RunInstances call is authorized once per resource TYPE it
+  # touches (instance, image, subnet, security-group, network-interface,
+  # volume), each checked independently against the whole policy. Putting
+  # ec2:InstanceType/ec2:Owner conditions on one statement whose resources
+  # cover all of those types breaks the call entirely: those condition keys
+  # only exist in the request context for the instance and image resource
+  # types, so IAM evaluates the condition as unmet for the others (subnet,
+  # security-group, network-interface, volume) and denies the whole request
+  # - confirmed live: this is exactly what happened the first time this was
+  # written, denying every RunInstances call outright ("no identity-based
+  # policy allows the ec2:RunInstances action"), not just wrong instances.
+  # The fix is AWS's own documented pattern: split by resource type, with the
+  # conditions attached only to the resource types they actually apply to.
   statement {
-    sid       = "Ec2RunInstancesConstrained"
+    sid       = "Ec2RunInstancesInstanceType"
     effect    = "Allow"
     actions   = ["ec2:RunInstances"]
-    resources = ["*"]
+    resources = ["arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"]
 
     condition {
       test     = "StringEquals"
       variable = "ec2:InstanceType"
       values   = ["t3.micro", "t3.small", "t3.medium", "t3.large"]
     }
+  }
+
+  statement {
+    sid     = "Ec2RunInstancesImageOwner"
+    effect  = "Allow"
+    actions = ["ec2:RunInstances"]
+    # Image ARNs have no account segment - the account field in the ARN
+    # identifies the AMI's owner, which varies per AMI, not the caller.
+    resources = ["arn:aws:ec2:${var.aws_region}::image/*"]
 
     condition {
       test     = "StringEquals"
       variable = "ec2:Owner"
       values   = ["amazon", "self"]
     }
+  }
+
+  # The remaining resource types RunInstances touches. None of them carry a
+  # meaningful instance-type or AMI-owner attribute of their own to condition
+  # on, so they're granted unconditionally - the actual cost/blast-radius
+  # constraint is fully carried by the two statements above.
+  statement {
+    sid     = "Ec2RunInstancesOtherResources"
+    effect  = "Allow"
+    actions = ["ec2:RunInstances"]
+    resources = [
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:network-interface/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:subnet/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:security-group/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:volume/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:key-pair/*",
+    ]
   }
 
   # Shared ALB listener rules + per-team target groups
