@@ -121,12 +121,28 @@ jobs:
         id: provision
         run: ./scripts/add-team.sh "${{ matrix.team }}"
 
+      - name: Check bridge webhook configured
+        # The `secrets` context cannot be referenced inside an `if:` expression
+        # at all - GitHub's parser rejects it outright ("Unrecognized
+        # named-value: 'secrets'"), unlike `env:`, where secrets work fine.
+        # This step exists purely to move that check into a step output the
+        # next step's `if:` can actually read.
+        id: check_webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.CTF_BRIDGE_WEBHOOK_URL }}
+        run: |
+          if [ -n "$WEBHOOK_URL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Notify bridge
         # Skips cleanly until CTF_BRIDGE_WEBHOOK_URL is configured, so this is
         # safe to ship before Cloud Village's endpoint is ready. success() is
         # explicit here because setting any `if:` replaces the step's default
         # "only run if the job hasn't already failed" check, not ANDs with it.
-        if: ${{ success() && secrets.CTF_BRIDGE_WEBHOOK_URL != '' }}
+        if: ${{ success() && steps.check_webhook.outputs.configured == 'true' }}
         env:
           WEBHOOK_URL: ${{ secrets.CTF_BRIDGE_WEBHOOK_URL }}
           WEBHOOK_SECRET: ${{ secrets.CTF_BRIDGE_WEBHOOK_SECRET }}
