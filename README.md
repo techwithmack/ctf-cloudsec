@@ -1,4 +1,4 @@
-# Cloud Village CTF — Aikido
+# Cloud Village CTF - Aikido
 
 Two sponsor-hosted cloud security challenges for DEFCON Cloud Village. AWS `us-west-2`, one
 isolated environment per team under `aikidoctf.com`.
@@ -25,9 +25,9 @@ Each team gets a fully isolated stack, keyed by `team_id`. Every resource (bucke
 instance, compute, IAM roles, secrets) is name-suffixed per team, so teams never collide or affect
 each other.
 
-Both challenges share one **bootstrap stack** (applied once per event — Route53 zone, wildcard
-ACM cert, shared ALB, shared container image) and a **per-team stack** (applied once per team via
-a Terraform workspace) that only reads the bootstrap's resources, never creates them. Teams are
+Both challenges share one **bootstrap stack** (applied once per event: Route53 zone, wildcard ACM
+cert, shared ALB, shared container image) and a **per-team stack** (applied once per team via a
+Terraform workspace) that only reads the bootstrap's resources and never creates them. Teams are
 routed via ALB host-header rules (`<team_id>.challenge1.aikidoctf.com` /
 `<team_id>.challenge2.aikidoctf.com`), not separate load balancers.
 
@@ -38,7 +38,7 @@ local scripts, the 1-hour auto-expiry, reading a team's flag, troubleshooting): 
 **[PROVISIONING.md](PROVISIONING.md)**.
 
 Wiring an external self-service bridge (CTFd auth → GitHub Actions → player) in front of
-provisioning? See **[BRIDGE_INTEGRATION.md](BRIDGE_INTEGRATION.md)** for the contract, the hard
+provisioning? See **[BRIDGE_INTEGRATION.md](BRIDGE_INTEGRATION.md)** for the contract, the
 security requirements, and what we need from whoever's building it before it goes live.
 
 Quick reference for anyone who just needs the commands:
@@ -48,8 +48,8 @@ Quick reference for anyone who just needs the commands:
 ```
 Both also run as GitHub Actions workflows (Actions → *Provision/Destroy team environments*), so
 organizers can manage teams without a local AWS/Terraform setup. Environments auto-expire after 1
-hour regardless of how they were provisioned, and both challenges' flags are shared per challenge,
-not unique per team.
+hour regardless of how they were provisioned. Both challenges' flags are shared per challenge, not
+unique per team.
 
 ---
 
@@ -76,15 +76,15 @@ No AWS credentials needed anywhere in the solve path.
 *[Deep dive](challenge2.md) · [Walkthrough](challenge-2-iac/docs/walkthrough.md)*
 
 **Scenario:** Meridian Systems runs a self-hosted Forgejo instance. Players get Write access to
-one repo (`infra`) whose deploy pipeline assumes an AWS IAM role via OIDC — no static credentials
-anywhere in the CI system.
+one repo (`infra`) whose deploy pipeline assumes an AWS IAM role via OIDC. No static credentials
+exist anywhere in the CI system.
 
 **Attack chain:**
 1. Log in as `player`, clone `infra`.
 2. `main` is branch-protected; `deploy/*` is not.
-3. Push to a `deploy/*` branch — triggers the deploy pipeline on the team's CI runner.
+3. Push to a `deploy/*` branch. This triggers the deploy pipeline on the team's CI runner.
 4. The job assumes the deploy role via OIDC and prints the flag secret to its own log.
 5. Player reads the flag from the job log.
 
-The OIDC trust policy is correctly scoped — the bug is purely in branch-protection coverage, not
+The OIDC trust policy is correctly scoped. The bug is purely in branch-protection coverage, not
 IAM.
