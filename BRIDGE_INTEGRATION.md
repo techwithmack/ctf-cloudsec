@@ -38,7 +38,7 @@ Player                CTFd              Your Lambda bridge          This repo (G
 Environments self-destruct after **1 hour** regardless of how they were provisioned. A scheduled
 reaper enforces this with no exceptions. There is no self-service *destroy*: your bridge should
 only ever call `provision-teams.yml`. It should never be given credentials that can dispatch
-`destroy-teams.yml` or `reap-teams.yml`. See [PAT scope](#1-the-github-token-pat) below for why
+`destroy-teams.yml` or `reap-teams.yml`. See [PAT scope](#1-create-your-own-github-token-pat) below for why
 that's enforced on our side too, not just a request.
 
 ---
@@ -70,16 +70,18 @@ You don't need to ask for any of this. It's shipped:
 
 ---
 
-## What we need from you
+## What you need to do
 
-Confirm/complete each of these before we flip this on for real players. Nothing below is
-optional. These close specific, concrete risks, not generic best-practice boilerplate.
+Complete each of these before we flip this on for real players. Nothing below is optional. These
+close specific, concrete risks, not generic best-practice boilerplate.
 
-### 1. The GitHub token (PAT)
+### 1. Create your own GitHub token (PAT)
+
+This one's on you to create and keep. We don't need the PAT itself. It never leaves your Lambda.
 
 You (Jayesh, as `maxdotdotg`) already have Write access to this repo as a collaborator, which is
 the minimum GitHub requires for any token, of any kind, to call `workflow_dispatch` here at all.
-There's no invite step left. You can generate the token yourself, right now.
+There's no invite step left. Generate the token yourself, right now.
 
 **Create a fine-grained personal access token under your `maxdotdotg` account, not a classic
 one**, scoped to:
@@ -92,14 +94,13 @@ one**, scoped to:
 - **An expiration date.** Set it to a few days past when BSides NYC actually closes out, not "no
   expiration."
 
+Store it in a secrets manager on your end, not an env var baked into a deploy artifact or
+committed anywhere.
+
 One consequence worth knowing about on our end: because `github.actor` for anything this token
 dispatches will show up as `maxdotdotg`, we've deliberately kept that account off the allowlist
 that gates our two teardown workflows (`destroy-teams.yml` and `reap-teams.yml`). Your token can
 dispatch provisioning, and nothing else, regardless of what scope you give it. That's expected.
-
-Then confirm for us:
-- Where/how the token is stored on your end. Should be a secrets manager, not an env var baked
-  into a deploy artifact or committed anywhere.
 
 If this token is ever suspected leaked or misused: revoke it immediately on your end and tell
 Mackenzie. We can rotate our side (the webhook secret, the allowlist) same-day with no
