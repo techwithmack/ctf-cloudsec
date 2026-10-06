@@ -192,6 +192,24 @@ team.
 
 ---
 
+## AWS account safety (before the event)
+
+The account was frozen by AWS during DEF CON 34. Cause unconfirmed; Challenge 2's runner (player
+code on EC2 with open egress) and Challenge 1's deliberately public bucket are the likeliest
+triggers. Before BSides:
+
+- Open a proactive AWS Support case describing the event (CTF, intentionally public S3 bucket,
+  player-run code on EC2, dates) and confirm the account's contacts and billing details are
+  current so a notice reaches a person.
+- Set an AWS Budget with alerts well below the account's tolerance, and watch GuardDuty findings
+  for the event window.
+- The runner already blocks job containers from the instance metadata service (see
+  `metadata_options` in `challenge-2-iac/main.tf`). Restricting its egress further is possible but
+  the deploy job legitimately needs `apt` mirrors and `awscli.amazonaws.com`, so test any
+  allowlist with `tests/local/challenge2.sh` and one real provision before relying on it.
+
+---
+
 ## Troubleshooting
 
 **Workflow fails immediately at "configure-aws-credentials."**

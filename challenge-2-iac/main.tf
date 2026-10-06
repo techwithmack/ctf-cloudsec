@@ -661,6 +661,18 @@ resource "aws_instance" "runner" {
     volume_type = "gp3"
   }
 
+  # Job containers run player-supplied code on this host, and their bridge network is one hop
+  # from the instance metadata service - at the default hop limit of 2 (and IMDSv1 allowed) any
+  # player job could read this instance profile's credentials. A hop limit of 1 with IMDSv2
+  # required keeps IMDS reachable by the host itself (the runner's own `aws ssm` call in
+  # user_data) but not by containers. Nothing in the intended solve path (OIDC to a different
+  # role via Forgejo's token endpoint) needs the instance profile.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
+
   user_data = templatefile("${path.module}/runner/user_data.sh.tftpl", {
     forgejo_url    = local.forgejo_url
     ssm_param_name = local.ssm_param_name

@@ -62,6 +62,19 @@ jobs:
             | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
             | grep -v '^$' \
             | jq -R . | jq -sc .)
+
+          # The matrix value below is later interpolated straight into a shell command
+          # (`remove-team.sh "${{ matrix.team }}"`), so anything that isn't a plain token must be
+          # rejected here, before it can become command text. Same pattern provision-teams.yml
+          # enforces; the actor allowlist above limits who can reach this, this limits what they
+          # can inject.
+          invalid=$(printf '%s' "$teams_json" | jq -r '.[] | select(test("^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$") | not)')
+          if [ -n "$invalid" ]; then
+            echo "::error::Invalid team_id(s) - must match ^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?\$ :" >&2
+            echo "$invalid" >&2
+            exit 1
+          fi
+
           echo "Teams: $teams_json"
           echo "teams=$teams_json" >> "$GITHUB_OUTPUT"
         env:
