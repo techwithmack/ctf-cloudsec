@@ -24,3 +24,15 @@ variable "runner_instance_type" {
   default     = "t3.small"
   description = "EC2 instance type for this team's CI runner. Fargate cannot run it (no Docker-in-Docker support), so this component runs on EC2."
 }
+
+variable "player_password" {
+  type        = string
+  default     = null
+  sensitive   = true
+  description = "Optional fixed password for the Forgejo `player` account. Unset/empty falls back to a per-team random_password (the original behavior). Set by provision-teams.yml from the CTF_PLAYER_PASSWORD repo variable so a self-service bridge that never sees our logs can still tell players how to log in."
+
+  validation {
+    condition     = var.player_password == null ? true : (var.player_password == "" ? true : length(var.player_password) >= 12)
+    error_message = "player_password must be at least 12 characters (or unset/empty to use a random one)."
+  }
+}

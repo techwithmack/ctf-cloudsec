@@ -35,7 +35,39 @@ permissions:
   contents: read
 
 jobs:
+  authorize:
+    # Only gates manual workflow_dispatch - the schedule trigger has no
+    # "actor" to check and must never be blocked, since unattended TTL
+    # enforcement is this workflow's entire purpose. Same rationale as
+    # destroy-teams.yml's authorize job: a bridge PAT only needs Actions:write
+    # to dispatch ANY workflow in the repo, including this one, and this one
+    # has no destroy-approval gate at all by design - so it's the single most
+    # dangerous workflow for an unintended actor to reach. Falls back to just
+    # the repo owner if ORGANIZER_GITHUB_LOGINS is unset - do NOT default this
+    # to every current collaborator: `maxdotdotg` has Write access (needed so
+    # its PAT can dispatch provision-teams.yml) but is Jayesh/Cloud Village's
+    # bridge identity, exactly the actor this guard exists to keep out.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify manual-dispatch actor is an authorized organizer
+        env:
+          ACTOR: ${{ github.actor }}
+          ALLOWED: ${{ vars.ORGANIZER_GITHUB_LOGINS }}
+        run: |
+          allowed="${ALLOWED:-techwithmack}"
+          if ! printf '%s' "$allowed" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -qxF "$ACTOR"; then
+            echo "::error::Manual dispatch of this workflow is restricted to organizers ($allowed). Actor '$ACTOR' is not authorized." >&2
+            exit 1
+          fi
+          echo "Dispatch authorized for $ACTOR"
+
   list-expired:
+    needs: authorize
+    # authorize is skipped (not failed) on a schedule trigger - proceed in
+    # that case, and also when authorize actually succeeded. Any other result
+    # (authorize failed a manual dispatch) blocks this and everything after.
+    if: always() && (needs.authorize.result == 'success' || needs.authorize.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -44,14 +76,17 @@ jobs:
       id-token: write # required to fetch the OIDC token for AWS role assumption
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      # Pinned to commit SHA - see the matching comment in provision-teams.yml.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # this job never pushes back to git
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_GITHUB_OIDC_ROLE_ARN }}
           aws-region: us-west-2
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
 
@@ -61,6 +96,16 @@ jobs:
           ttl_minutes="${{ inputs.ttl_minutes || 60 }}"
           if ! [[ "$ttl_minutes" =~ ^[0-9]+$ ]]; then
             echo "::error::ttl_minutes must be a non-negative integer, got: $ttl_minutes" >&2
+            exit 1
+          fi
+          # Independent of the actor check above: a fat-fingered override
+          # (e.g. testing "1" and meaning team count, or a stray "0") would
+          # otherwise sweep every active team across the whole event almost
+          # immediately, even for an authorized organizer. If you genuinely
+          # need faster-than-5-minute testing, do it against a disposable
+          # team_id, not by lowering this floor.
+          if [ "$ttl_minutes" -lt 5 ]; then
+            echo "::error::ttl_minutes must be at least 5 (got $ttl_minutes) - lower values risk tearing down every active team almost immediately." >&2
             exit 1
           fi
           teams_json=$(./scripts/reap-teams.sh --list "$((ttl_minutes * 60))" | jq -R . | jq -sc .)
@@ -85,14 +130,16 @@ jobs:
       group: ctf-team-${{ matrix.team }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # this job never pushes back to git
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_GITHUB_OIDC_ROLE_ARN }}
           aws-region: us-west-2
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
 

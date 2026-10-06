@@ -103,26 +103,28 @@ mask() {
   fi
 }
 
+C1_DIR="$REPO_ROOT/challenge-1-iac"
+C2_DIR="$REPO_ROOT/challenge-2-iac"
+
+terraform -chdir="$C1_DIR" workspace select "$TEAM_ID" >/dev/null
+c1_url="$(terraform -chdir="$C1_DIR" output -raw entrypoint_url)"
+c1_flag="$(terraform -chdir="$C1_DIR" output -raw qa_verification_flag)"
+mask "$c1_flag"
+
+terraform -chdir="$C2_DIR" workspace select "$TEAM_ID" >/dev/null
+c2_url="$(terraform -chdir="$C2_DIR" output -raw entrypoint_url)"
+c2_username="$(terraform -chdir="$C2_DIR" output -raw player_username)"
+c2_password="$(terraform -chdir="$C2_DIR" output -raw player_password)"
+c2_flag="$(terraform -chdir="$C2_DIR" output -raw qa_verification_flag)"
+mask "$c2_password"
+mask "$c2_flag"
+
 echo "--- Challenge 1 ---"
-(
-  cd "$REPO_ROOT/challenge-1-iac"
-  terraform workspace select "$TEAM_ID" >/dev/null
-  c1_flag="$(terraform output -raw qa_verification_flag)"
-  mask "$c1_flag"
-  echo "URL:  $(terraform output -raw entrypoint_url)"
-  echo "Flag: $c1_flag"
-)
+echo "URL:  $c1_url"
+echo "Flag: $c1_flag"
 
 echo "--- Challenge 2 ---"
-(
-  cd "$REPO_ROOT/challenge-2-iac"
-  terraform workspace select "$TEAM_ID" >/dev/null
-  c2_password="$(terraform output -raw player_password)"
-  c2_flag="$(terraform output -raw qa_verification_flag)"
-  mask "$c2_password"
-  mask "$c2_flag"
-  echo "URL:      $(terraform output -raw entrypoint_url)"
-  echo "Username: $(terraform output -raw player_username)"
-  echo "Password: $c2_password"
-  echo "Flag:     $c2_flag"
-)
+echo "URL:      $c2_url"
+echo "Username: $c2_username"
+echo "Password: $c2_password"
+echo "Flag:     $c2_flag"

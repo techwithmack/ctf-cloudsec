@@ -149,6 +149,16 @@ resource "random_password" "player" {
   special = false
 }
 
+# A fixed, event-wide password (when provided) instead of the per-team random one:
+# a self-service bridge dispatches this workflow but deliberately never reads our
+# Actions logs (flags/passwords are masked there), so it has no channel to receive a
+# generated password. Tradeoff: knowing another team's team_id is then enough to log
+# in as `player` on that team's Forgejo - bounded by the shared flag, main's branch
+# protection and the 1-hour TTL, and mitigated by the bridge using unguessable team_ids.
+locals {
+  player_password = var.player_password == null ? random_password.player.result : (var.player_password == "" ? random_password.player.result : var.player_password)
+}
+
 # ---------------------------------------------------------------------------
 # Persistent storage for Forgejo's data dir (SQLite DB, repos, Actions state).
 # Without this, a Fargate task replacement wipes everything - including any
@@ -347,7 +357,7 @@ resource "aws_ecs_task_definition" "forgejo" {
       { name = "ORG_NAME", value = local.org_name },
       { name = "REPO_NAME", value = local.repo_name },
       { name = "PLAYER_USERNAME", value = "player" },
-      { name = "PLAYER_PASSWORD", value = random_password.player.result },
+      { name = "PLAYER_PASSWORD", value = local.player_password },
       { name = "AWS_DEPLOY_ROLE_ARN", value = local.deploy_role_arn },
       { name = "FLAG_SECRET_ID", value = data.aws_secretsmanager_secret.flag.arn },
       { name = "AWS_REGION", value = var.aws_region },
@@ -681,6 +691,6 @@ output "player_username" {
 }
 
 output "player_password" {
-  value     = random_password.player.result
+  value     = local.player_password
   sensitive = true
 }

@@ -66,9 +66,21 @@ service_age_seconds() {
 
 # $1 = challenge dir, $2 = cluster prefix, $3 = service prefix, $4 = label
 reap_challenge() {
-  local dir="$1" cluster_prefix="$2" service_prefix="$3" label="$4" team age
+  local dir="$1" cluster_prefix="$2" service_prefix="$3" label="$4" team age workspaces
 
-  for team in $(list_team_workspaces "$dir"); do
+  # `for team in $(...)` discards the command substitution's own exit status -
+  # only its stdout (the word list) matters to `for`. That means a broken
+  # backend (e.g. the shared state bucket itself missing/unreachable) would
+  # look EXACTLY like "zero live teams" and this reaper - whose entire job is
+  # unattended safety enforcement - would silently do nothing instead of
+  # tearing anything down, with no error anywhere. Capture explicitly and
+  # abort loudly instead of treating "couldn't check" as "nothing to do."
+  if ! workspaces="$(list_team_workspaces "$dir")"; then
+    echo "::error::Failed to list Terraform workspaces for $dir - refusing to assume that means zero teams to reap. Aborting this pass rather than silently doing nothing." >&2
+    exit 1
+  fi
+
+  for team in $workspaces; do
     age=$(service_age_seconds "${cluster_prefix}${team}" "${service_prefix}${team}")
     if [ -z "$age" ]; then
       echo "  $team ($label): no active ECS service, skipping" >&2

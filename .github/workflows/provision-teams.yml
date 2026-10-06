@@ -19,6 +19,8 @@ on:
         description: 'Unique request ID for correlation'
         required: true
         type: string
+        # No default: this is required, but the type system alone doesn't stop
+        # an empty-string dispatch, so the prepare job re-validates it below.
 
 permissions:
   contents: read
@@ -30,19 +32,55 @@ jobs:
       teams: ${{ steps.parse.outputs.teams }}
     steps:
       - id: parse
-        name: Parse team_ids into a JSON list
+        name: Parse and validate team_ids into a JSON list
         run: |
           teams_json=$(printf '%s' "$TEAM_IDS" \
             | tr ',' '\n' \
             | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
             | grep -v '^$' \
             | jq -R . | jq -sc .)
+
+          # team_id flows straight into a Terraform workspace name, an ALB
+          # host-header rule, and a DNS subdomain. This was fine when only an
+          # organizer typed team names by hand; now that an external bridge
+          # can dispatch this workflow on a player's behalf, reject anything
+          # that isn't a safe token before it reaches Terraform.
+          invalid=$(printf '%s' "$teams_json" | jq -r '.[] | select(test("^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$") | not)')
+          if [ -n "$invalid" ]; then
+            echo "Invalid team_id(s) - must match ^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?\$ :" >&2
+            echo "$invalid" >&2
+            exit 1
+          fi
+
+          # Defense-in-depth against a runaway/duplicated bridge call fanning
+          # out an unbounded number of teams in one dispatch: each team is its
+          # own matrix job against the same shared ALB (default quota of 100
+          # listener rules) and the same shared AWS OIDC role, concurrently.
+          # A human typing team_ids by hand never hit this; an external bridge
+          # dispatching on a player's behalf can, by bug or replay. If you
+          # legitimately need more than this in one run, split into multiple
+          # dispatches rather than raising this cap casually.
+          team_count=$(printf '%s' "$teams_json" | jq 'length')
+          if [ "$team_count" -gt "$MAX_TEAMS" ]; then
+            echo "::error::Refusing to provision $team_count teams in one dispatch (max $MAX_TEAMS). Split into multiple runs." >&2
+            exit 1
+          fi
+
+          # challenge_request_id is echoed into this run's display name and
+          # forwarded to the bridge for correlation - keep it to a boring safe
+          # token so it can't inject stray content into either.
+          if ! printf '%s' "$CHALLENGE_REQUEST_ID" | grep -qE '^[A-Za-z0-9._-]{1,128}$'; then
+            echo "::error::Invalid challenge_request_id - must match ^[A-Za-z0-9._-]{1,128}\$" >&2
+            exit 1
+          fi
+
           echo "Teams: $teams_json"
           echo "Request ID: $CHALLENGE_REQUEST_ID"
           echo "teams=$teams_json" >> "$GITHUB_OUTPUT"
         env:
           TEAM_IDS: ${{ inputs.team_ids }}
           CHALLENGE_REQUEST_ID: ${{ inputs.challenge_request_id }}
+          MAX_TEAMS: 20
 
   provision:
     needs: prepare
@@ -62,16 +100,30 @@ jobs:
       group: ctf-team-${{ matrix.team }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: aws-actions/configure-aws-credentials@v4
+      # Pinned to commit SHA, not the moving @v4/@v3 tag - this job assumes a
+      # real AWS OIDC role and now runs unattended off an external bridge's
+      # dispatch, so a compromised or re-tagged upstream action would run with
+      # that role's credentials. Bump the SHA (with the version comment) when
+      # deliberately upgrading, never just to "pick up latest".
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # this job never pushes back to git
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_GITHUB_OIDC_ROLE_ARN }}
           aws-region: us-west-2
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
 
       - name: Provision ${{ matrix.team }}
+        # A self-service bridge dispatches this workflow but never reads its logs
+        # (flags/passwords are masked there on purpose), so it can't be handed a
+        # generated Challenge 2 password. CTF_PLAYER_PASSWORD (repo variable, Settings >
+        # Secrets and variables > Actions > Variables) gives every team the same
+        # `player` password, which the CTFd challenge text tells players. Unset =
+        # per-team random password, as before (organizer reads it via PROVISIONING.md).
+        env:
+          TF_VAR_player_password: ${{ vars.CTF_PLAYER_PASSWORD }}
         run: ./scripts/add-team.sh "${{ matrix.team }}"

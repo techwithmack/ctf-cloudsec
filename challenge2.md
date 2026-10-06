@@ -1,15 +1,15 @@
-# Challenge 2: The Shadow Pipeline Overlord — How It Actually Works
+# Challenge 2: The Shadow Pipeline Overlord - How It Actually Works
 
 This is the internal technical explainer for how the challenge is built and how the flag flows
 from Terraform to the player. For the player-facing writeup, hints, and grading metadata, see
-`challenge-2-iac/docs/`. This file is about the mechanics underneath.
+`challenge-2-iac/docs/`. This file covers the mechanics underneath.
 
 ## The one-sentence version
 
 Terraform stands up a self-hosted Forgejo instance per team with a low-privileged `player` account
-that has Write access to one repo whose CI pipeline can assume a real AWS IAM role via OIDC; the
+that has Write access to one repo whose CI pipeline can assume a real AWS IAM role via OIDC. The
 repo's branch protection covers `main` but not `deploy/*`, so a player who notices that gap can
-trigger the privileged pipeline themselves and read the flag straight out of its job log — no
+trigger the privileged pipeline themselves and read the flag straight out of its job log. No
 static AWS credentials exist anywhere in the system for a player to steal in the first place.
 
 ## Per-team isolation model
@@ -30,28 +30,28 @@ terraform apply \
 Each invocation creates a fully independent Forgejo instance, EFS volume, EC2 CI runner, IAM OIDC
 provider, deploy role, and flag secret for that team. The only things shared across all teams are
 read-only lookups against the event-wide `challenge-2-iac/bootstrap/` stack (the ALB, the ACM cert,
-the Route53 zone, the Forgejo container image) — no team's stack ever creates any of those itself.
+the Route53 zone, the Forgejo container image). No team's stack ever creates any of those itself.
 
 ## What gets built, and why
 
 ### 1. Forgejo itself (ECS Fargate + EFS)
 
 - `aws_ecs_task_definition.forgejo` runs the custom Forgejo image (see below) on Fargate, with
-  `platform_version = "1.4.0"` specifically because EFS volume support on Fargate requires it.
-- `aws_efs_file_system.forgejo_data` (+ one mount target per subnet) gives Forgejo's SQLite
+  `platform_version = "1.4.0"` because EFS volume support on Fargate requires it.
+- `aws_efs_file_system.forgejo_data` (plus one mount target per subnet) gives Forgejo's SQLite
   database, repo contents, and Actions state somewhere to persist. Without this, replacing the
   Fargate task (a deploy, a health-check failure) would silently wipe the team's entire git
   history and any branch they'd already pushed mid-solve.
-- `aws_security_group.forgejo_sg` only allows inbound `3000` from the shared ALB's security group
-  — Forgejo is never directly internet-reachable, exactly like Challenge 1's entry-point app.
-- Two separate IAM roles exist for the same task, deliberately kept apart:
-  - `ecs_execution_role` — the standard ECS plumbing role (pull the image, write logs).
-  - `forgejo_task` — the *container's own* runtime identity, scoped to exactly one action:
-    `ssm:PutParameter` on this team's own runner-token parameter. It has no other AWS permission at
-    all, so even if Forgejo itself were somehow compromised from outside, that identity alone
-    grants nothing interesting.
+- `aws_security_group.forgejo_sg` only allows inbound `3000` from the shared ALB's security group.
+  Forgejo is never directly internet-reachable, same as Challenge 1's entry-point app.
+- Two separate IAM roles exist for the same task, kept apart on purpose:
+  - `ecs_execution_role`: the standard ECS plumbing role (pull the image, write logs).
+  - `forgejo_task`: the *container's own* runtime identity, scoped to exactly one action,
+    `ssm:PutParameter` on this team's own runner-token parameter. It has no other AWS permission,
+    so even if Forgejo itself were somehow compromised from outside, that identity alone grants
+    nothing interesting.
 
-### 2. `forgejo/bootstrap.sh` — provisioning Forgejo's contents on first boot
+### 2. `forgejo/bootstrap.sh`: provisioning Forgejo's contents on first boot
 
 This script is the container's actual entrypoint. It starts the real Forgejo process in the
 background, waits for its API to respond, and then idempotently provisions everything the
@@ -60,54 +60,54 @@ challenge needs by calling Forgejo's own REST API as a freshly-created admin acc
 1. Creates the admin account (`gitea admin user create`, since the CLI must run as Forgejo's own
    `git` user rather than root).
 2. Creates an org (`team-<team_id>`) and one repo inside it (`infra`).
-3. Creates the **low-privileged `player` account** — this is the identity the team actually
-   receives — and adds it as a **Write** collaborator on `infra`. Write, not Admin: the player can
-   push branches and see workflow *behavior*, but cannot view or change branch protection settings
-   (`GET .../branch_protections` requires Admin) — the gap has to be found empirically, not read
+3. Creates the **low-privileged `player` account**, the identity the team actually receives, and
+   adds it as a **Write** collaborator on `infra`. Write, not Admin: the player can push branches
+   and see workflow *behavior*, but cannot view or change branch protection settings
+   (`GET .../branch_protections` requires Admin). The gap has to be found empirically, not read
    off a settings page.
 4. Commits the pre-written deploy workflow (`.forgejo/workflows/deploy.yml`, see below) to `main`.
-5. Applies branch protection to **`main` only** (`enable_push: false`) — `deploy/*` is deliberately
+5. Applies branch protection to **`main` only** (`enable_push: false`). `deploy/*` is deliberately
    never touched by any protection rule. **This is the entire vulnerability.** The OIDC trust
    policy on the AWS side (below) is correctly scoped; the bug is purely that Forgejo's branch
    protection doesn't cover every ref pattern the CI trusts.
-6. Sets three repo-level Action secrets (`AWS_DEPLOY_ROLE_ARN`, `FLAG_SECRET_ID`, `AWS_REGION`) that
-   the workflow reads at runtime — not visible to the player via the API, but the workflow's
-   *behavior* (what it does with them) is fully visible since the player can read the workflow file
-   they just cloned.
+6. Sets three repo-level Action secrets (`AWS_DEPLOY_ROLE_ARN`, `FLAG_SECRET_ID`, `AWS_REGION`)
+   that the workflow reads at runtime. Not visible to the player via the API, but the workflow's
+   *behavior* (what it does with them) is fully visible since the player can read the workflow
+   file they just cloned.
 7. Mints a repo-scoped CI runner registration token and writes it to this team's own SSM parameter
    (`/ctf/challenge2/${team_id}/runner-token`), which the EC2 runner (below) is waiting to read.
 
-Every step tolerates its own "already provisioned" response (a different status code per endpoint,
-verified against a real Forgejo instance — 422 for org/user/workflow conflicts, 409 for repo
-conflicts, 403 for branch-protection conflicts) rather than treating it as fatal. That's not just
-cosmetic idempotency: if the container crashes partway through a first boot, ECS replaces it with a
-fresh container that reruns the whole script from step 1 — without this tolerance, the very first
-already-applied step would exit non-zero and crash every subsequent container too, forever, in a
-real crash loop found by live testing. A marker file (`/data/.ctf-bootstrap-done` on the EFS
+Every step tolerates its own "already provisioned" response (a different status code per
+endpoint, verified against a real Forgejo instance: 422 for org/user/workflow conflicts, 409 for
+repo conflicts, 403 for branch-protection conflicts) rather than treating it as fatal. That's not
+just cosmetic idempotency: if the container crashes partway through a first boot, ECS replaces it
+with a fresh container that reruns the whole script from step 1. Without this tolerance, the very
+first already-applied step would exit non-zero and crash every subsequent container too, forever,
+a real crash loop found by live testing. A marker file (`/data/.ctf-bootstrap-done` on the EFS
 volume) skips the whole provisioning block on any later restart once it has succeeded once.
 
 ### 3. The deploy workflow (`forgejo/deploy-workflow.yml`)
 
 Triggers on `push: branches: [deploy/**]`. With `enable-openid-connect: true`, the job gets
-`ACTIONS_ID_TOKEN_REQUEST_URL`/`_TOKEN` env vars it can use to ask Forgejo for a short-lived OIDC ID
-token scoped to *this specific run* (audience `sts.amazonaws.com`, subject encoding the repo and
-ref). The job then:
+`ACTIONS_ID_TOKEN_REQUEST_URL`/`_TOKEN` env vars it can use to ask Forgejo for a short-lived OIDC
+ID token scoped to *this specific run* (audience `sts.amazonaws.com`, subject encoding the repo
+and ref). The job then:
 
 1. Requests that ID token.
 2. Calls `aws sts assume-role-with-web-identity` with it against `AWS_DEPLOY_ROLE_ARN`.
 3. Uses the resulting temporary credentials to call `aws secretsmanager get-secret-value` for
    `FLAG_SECRET_ID` and prints the result to stdout as its "deployment sync" step.
 
-Nothing about this workflow is secret or hidden from the player — it's committed to `main`, which
+Nothing about this workflow is secret or hidden from the player. It's committed to `main`, which
 the player can read (Write access includes read). The only thing standing between the player and
-running it with their own commit is whichever ref the push lands on, which is exactly the gap
-`bootstrap.sh` leaves open.
+running it with their own commit is which ref the push lands on, exactly the gap `bootstrap.sh`
+leaves open.
 
-### 4. IAM OIDC trust — correctly scoped, and deliberately not the bug
+### 4. IAM OIDC trust: correctly scoped, and deliberately not the bug
 
 - `aws_iam_openid_connect_provider.forgejo` registers Forgejo's own Actions issuer
   (`https://<team_id>.challenge2.aikidoctf.com/api/actions`) as a trusted OIDC provider. AWS
-  validates this by connecting to the issuer's discovery endpoint at creation time — which is why
+  validates this by connecting to the issuer's discovery endpoint at creation time, which is why
   this resource has to wait (`null_resource.wait_for_forgejo_healthy`, polling the ALB target
   group's health) until Forgejo is actually up behind the ALB, not just until the ECS service
   object exists.
@@ -115,13 +115,13 @@ running it with their own commit is whichever ref the push lands on, which is ex
   - `"...:aud" = "sts.amazonaws.com"`
   - `"...:sub"` matching `repo:team-<team_id>/infra:ref:refs/heads/deploy/*` (a `StringLike`,
     i.e. wildcard, condition)
-- That trust policy is **exactly right** — it only trusts tokens whose subject claim says "this
-  came from team `<team_id>`'s own `infra` repo, on a ref under `deploy/`." A token minted by a
-  *different* team's Forgejo (a different OIDC provider ARN entirely, since each team has its own)
-  could never satisfy it. The vulnerability is entirely that Forgejo will happily mint a
-  `deploy/pwn` token for anyone with Write access, not that AWS trusts the wrong thing.
+- That trust policy is correct. It only trusts tokens whose subject claim says "this came from
+  team `<team_id>`'s own `infra` repo, on a ref under `deploy/`." A token minted by a *different*
+  team's Forgejo (a different OIDC provider ARN entirely, since each team has its own) could never
+  satisfy it. The vulnerability is entirely that Forgejo will happily mint a `deploy/pwn` token
+  for anyone with Write access, not that AWS trusts the wrong thing.
 - `aws_iam_role_policy.deploy_secrets_read` scopes the role to `secretsmanager:GetSecretValue` on
-  exactly this team's one flag secret ARN — nothing account-wide, nothing another team's stack
+  exactly this team's one flag secret ARN. Nothing account-wide, nothing another team's stack
   could ever be affected by even in the worst case.
 
 ### 5. The CI runner (EC2, not Fargate)
@@ -129,23 +129,23 @@ running it with their own commit is whichever ref the push lands on, which is ex
 - Fargate can't run `forgejo-runner`'s jobs (they need Docker-in-Docker to execute the job's own
   containers), so this component is a plain EC2 instance instead.
 - `runner/user_data.sh.tftpl` installs Docker and `forgejo-runner`, then polls this team's SSM
-  parameter for the registration token `bootstrap.sh` will eventually publish (Terraform
-  pre-creates the parameter with a `PENDING` placeholder specifically so `terraform destroy` cleans
-  it up between deployments; the runner's boot script keeps waiting past that placeholder rather
-  than registering with it).
+  parameter for the registration token `bootstrap.sh` will eventually publish. Terraform
+  pre-creates the parameter with a `PENDING` placeholder specifically so `terraform destroy`
+  cleans it up between deployments; the runner's boot script keeps waiting past that placeholder
+  rather than registering with it.
 - The one-time registration token has to go through `forgejo-runner register` (not `daemon`'s
-  inline token config, which rejects the token's own base64url character set) — `register` writes
-  a `.runner` file containing the runner's real persistent token, which `daemon` then reads with no
-  further config needed. Both this and the AWS CLI's SSM write use `--flag=value` rather than
-  `--flag value`, because the token can start with `-` by chance and confuse either tool's argument
-  parser otherwise (found by live testing, not theoretical).
-- `aws_security_group.runner_sg` has **no inbound rules at all** — the runner only ever makes
+  inline token config, which rejects the token's own base64url character set). `register` writes
+  a `.runner` file containing the runner's real persistent token, which `daemon` then reads with
+  no further config needed. Both this and the AWS CLI's SSM write use `--flag=value` rather than
+  `--flag value`, because the token can start with `-` by chance and confuse either tool's
+  argument parser otherwise (found by live testing, not theoretical).
+- `aws_security_group.runner_sg` has **no inbound rules at all**. The runner only ever makes
   outbound connections (polling Forgejo for jobs), and its IAM role
   (`aws_iam_role.runner`/`aws_iam_instance_profile.runner`) grants nothing beyond
   `ssm:GetParameter` on this team's own token and the standard `AmazonSSMManagedInstanceCore`
   policy (for Session Manager access, useful for debugging a stuck runner). The host itself is
   deliberately not a privilege-escalation target: the OIDC token exchange happens inside the job's
-  container, sourced from Forgejo's short-lived ID token — never from anything sitting on the
+  container, sourced from Forgejo's short-lived ID token, never from anything sitting on the
   runner host.
 
 ### 6. Routing: the shared ALB, same pattern as Challenge 1
@@ -154,8 +154,8 @@ A separate, event-wide **`challenge-2-iac/bootstrap/`** stack (applied once, bef
 provisions: a Route53 zone lookup for `aikidoctf.com`, a wildcard ACM cert for
 `*.challenge2.aikidoctf.com`, one shared ALB (`shadow-pipeline-alb`), and the shared ECR repo for
 the Forgejo image. Each team's own `main.tf` looks all of that up read-only and adds only its own
-target group, host-header listener rule (`<team_id>.challenge2.aikidoctf.com`, no `priority` set so
-independent teams' applies never collide), and Route53 alias record — identical reasoning to
+target group, host-header listener rule (`<team_id>.challenge2.aikidoctf.com`, no `priority` set
+so independent teams' applies never collide), and Route53 alias record. Same reasoning as
 Challenge 1's `bootstrap/`, described in more detail in `challenge1.md`.
 
 ## The full attack chain, end to end
@@ -172,7 +172,7 @@ Challenge 1's `bootstrap/`, described in more detail in `challenge1.md`.
 8. Player reads the flag straight out of their own job's log in the Actions tab
 ```
 
-No exploit in AWS IAM, no OIDC misconfiguration, no zero-day — the trust policy is correct end to
+No exploit in AWS IAM, no OIDC misconfiguration, no zero-day. The trust policy is correct end to
 end. The entire vulnerability is that Forgejo's branch protection has a gap the player has to
 discover by testing (protected `main`, unprotected `deploy/*`), which is exactly the "real
 branch-protection gap under a real, correctly-configured OIDC trust policy" the challenge is built
@@ -182,7 +182,7 @@ to teach.
 
 | File | Role |
 |---|---|
-| `challenge-2-iac/bootstrap/main.tf`, `challenge-2-iac/bootstrap/variables.tf` | Shared, event-wide: Route53 zone lookup, wildcard ACM cert for `*.challenge2.aikidoctf.com`, shared ALB, shared ECR repo — applied once |
+| `challenge-2-iac/bootstrap/main.tf`, `challenge-2-iac/bootstrap/variables.tf` | Shared, event-wide: Route53 zone lookup, wildcard ACM cert for `*.challenge2.aikidoctf.com`, shared ALB, shared ECR repo. Applied once |
 | `challenge-2-iac/variables.tf` | `aws_region`, `team_id`, `zone_name`, `ctf_domain`, `runner_instance_type` |
 | `challenge-2-iac/main.tf` | Per-team stack: Forgejo (ECS Fargate + EFS), CI runner (EC2), IAM OIDC provider + deploy role, the flag secret, ALB routing |
 | `challenge-2-iac/forgejo/Dockerfile` | Custom Forgejo image build |
