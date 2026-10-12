@@ -15,7 +15,9 @@ isolated environment per team under `aikidoctf.com`.
 
 Full deliverables (description, hints, learning objectives, architecture diagram, walkthrough,
 metadata) live under each challenge's `docs/` folder. Deep technical explainers:
-[challenge1.md](challenge1.md), [challenge2.md](challenge2.md).
+[challenge1.md](challenge1.md), [challenge2.md](challenge2.md). Standalone story/scenario writeups
+(the version to hand to an external party, e.g. a sponsor confirming challenge copy):
+[challenge1-story.md](challenge1-story.md), [challenge2-story.md](challenge2-story.md).
 
 ---
 
@@ -55,7 +57,7 @@ unique per team.
 
 ## Challenge 1: The Flawed Blueprint
 
-*[Deep dive](challenge1.md) · [Walkthrough](challenge-1-iac/docs/walkthrough.md)*
+*[Story](challenge1-story.md) · [Deep dive](challenge1.md) · [Walkthrough](challenge-1-iac/docs/walkthrough.md)*
 
 **Scenario:** Meridian Systems left a "quick backup" of production config in a public S3 bucket,
 leaked via an internal developer portal.
@@ -73,7 +75,7 @@ No AWS credentials needed anywhere in the solve path.
 
 ## Challenge 2: The Shadow Pipeline Overlord
 
-*[Deep dive](challenge2.md) · [Walkthrough](challenge-2-iac/docs/walkthrough.md)*
+*[Story](challenge2-story.md) · [Deep dive](challenge2.md) · [Walkthrough](challenge-2-iac/docs/walkthrough.md)*
 
 **Scenario:** Meridian Systems runs a self-hosted Forgejo instance. Players get Write access to
 one repo (`infra`) whose deploy pipeline assumes an AWS IAM role via OIDC. No static credentials
