@@ -16,7 +16,7 @@ fi
 
 TEAM_ID="$1"
 AUTO_YES="${2:-}"
-ZONE_NAME="aikidoctf.com"
+ZONE_NAME="aikidolabs.net"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [ "$AUTO_YES" != "--yes" ]; then

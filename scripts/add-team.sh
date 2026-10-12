@@ -19,7 +19,7 @@ if [ $# -ne 1 ]; then
 fi
 
 TEAM_ID="$1"
-ZONE_NAME="aikidoctf.com"
+ZONE_NAME="aikidolabs.net"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Retries `terraform apply` a few times on failure. Real-world trigger: both
