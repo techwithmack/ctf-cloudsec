@@ -16,10 +16,14 @@ mechanics of turning a `team_id` into a live environment, and back off again.
   `team-06`). No team's resources overlap with any other team's.
 - Two ways to provision: **GitHub Actions** (no AWS access needed, the recommended path for
   Ops/Techops) or **local scripts** (requires AWS credentials and Terraform installed).
-- **Environments auto-expire after 1 hour.** A scheduled job checks every 5 minutes and tears down
-  anything older than that. This is automatic, so you don't need to remember to clean up after a
-  team, but it also means a team can't be kept alive past an hour by leaving it running. Give them
-  a fresh `team_id` (or re-run provisioning for the same one) if they need more time.
+- **Environments auto-expire after roughly 1-2 hours.** A scheduled job checks hourly and tears
+  down anything past the 1-hour TTL, so a team can live up to ~2 hours worst case (expires right
+  after a check, caught by the next one). This is automatic, so you don't need to remember to
+  clean up after a team, but it also means a team can't be kept alive indefinitely by leaving it
+  running. Give them a fresh `team_id` (or re-run provisioning for the same one) if they need more
+  time. (Originally checked every 5 minutes - found on 2026-10-14 that GitHub silently throttles a
+  cron that frequent on a public repo to 3-9 hour real gaps, so this moved to the hourly cadence
+  GitHub actually honors reliably. See reap-teams.yml's own comment for the detail.)
 - **Both challenges share one flag each.** Every team sees the same answer per challenge. Flags
   are not unique per team.
 
@@ -79,7 +83,7 @@ Forgejo `player` account gets that one password, and the CTFd challenge text tel
 is. Unset = a per-team random password, as before (read it via
 [Reading a team's flag](#reading-a-teams-flag-or-credentials)).
 
-Because the password is shared, the team URL (`<team_id>.challenge2.aikidoctf.com`) is the only
+Because the password is shared, the team URL (`<team_id>.challenge2.aikidolabs.net`) is the only
 thing separating teams, so the bridge should use unguessable `team_id`s. Change the value for each
 event (it isn't a secret from players, but it shouldn't be last event's). See
 **[BRIDGE_INTEGRATION.md](BRIDGE_INTEGRATION.md)** for the full bridge contract.
@@ -153,13 +157,17 @@ volume for Challenge 2, but **the same flag**, since flags are shared per challe
 
 ---
 
-## Auto-expiry (1-hour TTL)
+## Auto-expiry (1-hour TTL, checked hourly)
 
-**Reap expired team environments** runs on a schedule every 5 minutes. It doesn't rely on any
+**Reap expired team environments** runs on a schedule hourly (was every 5 minutes until
+2026-10-14 - GitHub silently throttles a cron that frequent on a public repo to 3-9 hour real
+gaps between runs, so this moved to the cadence GitHub actually honors). It doesn't rely on any
 timestamp Terraform tracks. It asks AWS directly how old each team's environment actually is
 (each challenge's ECS service `createdAt`) and destroys anything past 1 hour, the same way the
 manual destroy workflow does. No approval gate on this one: enforcing the TTL without waiting on a
-human is the entire point.
+human is the entire point. Because the check itself only runs hourly, actual lifetime is "1 hour
+past expiry, caught by the next hourly check" - up to ~2 hours worst case, not a strict 60-minute
+cutoff.
 
 You can trigger a pass manually (e.g. to test it, or to force an immediate sweep): **Actions** tab
 → **Reap expired team environments** → **Run workflow**. You can optionally override the TTL in
@@ -169,7 +177,7 @@ confirm the reaper actually catches it).
 **This applies to every team workspace it finds. There's no "protected" or long-lived team
 exemption.** If you provision a team you want to keep around for reference/QA purposes for longer
 than an hour, re-provision it before it gets swept, or don't rely on the reaper being off. It runs
-every 5 minutes regardless of who provisioned what.
+hourly regardless of who provisioned what.
 
 ---
 

@@ -1,7 +1,7 @@
 # Cloud Village CTF - Aikido
 
 Two sponsor-hosted cloud security challenges for DEFCON Cloud Village. AWS `us-west-2`, one
-isolated environment per team under `aikidoctf.com`.
+isolated environment per team under `aikidolabs.net`.
 
 | | Challenge 1: The Flawed Blueprint | Challenge 2: The Shadow Pipeline Overlord |
 |---|---|---|
@@ -10,7 +10,7 @@ isolated environment per team under `aikidoctf.com`.
 | Points | 100 | 450 |
 | Solve time | 20 min | 75 min |
 | Directory | `challenge-1-iac/` | `challenge-2-iac/` |
-| Entry point | `https://<team_id>.challenge1.aikidoctf.com` | `https://<team_id>.challenge2.aikidoctf.com` |
+| Entry point | `https://<team_id>.challenge1.aikidolabs.net` | `https://<team_id>.challenge2.aikidolabs.net` |
 | Concept | Public S3 bucket leaks a forgotten backup file | Unprotected `deploy/*` branch triggers a privileged OIDC pipeline |
 
 Full deliverables (description, hints, learning objectives, architecture diagram, walkthrough,
@@ -30,8 +30,8 @@ each other.
 Both challenges share one **bootstrap stack** (applied once per event: Route53 zone, wildcard ACM
 cert, shared ALB, shared container image) and a **per-team stack** (applied once per team via a
 Terraform workspace) that only reads the bootstrap's resources and never creates them. Teams are
-routed via ALB host-header rules (`<team_id>.challenge1.aikidoctf.com` /
-`<team_id>.challenge2.aikidoctf.com`), not separate load balancers.
+routed via ALB host-header rules (`<team_id>.challenge1.aikidolabs.net` /
+`<team_id>.challenge2.aikidolabs.net`), not separate load balancers.
 
 ### Managing teams
 
@@ -63,7 +63,7 @@ unique per team.
 leaked via an internal developer portal.
 
 **Attack chain:**
-1. Player gets `https://<team_id>.challenge1.aikidoctf.com/`.
+1. Player gets `https://<team_id>.challenge1.aikidolabs.net/`.
 2. Page source contains an HTML comment leaking the bucket URL.
 3. `aws s3 ls s3://aikido-ctf-blueprint-backup-<team_id> --no-sign-request`
 4. `aws s3 cp s3://.../prod_backup_config.toml . --no-sign-request`

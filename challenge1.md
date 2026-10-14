@@ -22,8 +22,8 @@ cd challenge-1-iac
 terraform workspace new team007   # or `select` if it already exists
 terraform apply \
   -var="team_id=team007" \
-  -var="zone_name=aikidoctf.com" \
-  -var="ctf_domain=challenge1.aikidoctf.com"
+  -var="zone_name=aikidolabs.net" \
+  -var="ctf_domain=challenge1.aikidolabs.net"
 ```
 
 Each invocation creates a fully independent set of resources for that team: its own bucket, its
@@ -95,15 +95,15 @@ the AWS CLI for the task's public IP. That approach is gone now in favor of rout
 through one shared Application Load Balancer, the same pattern Challenge 2 already used:
 
 - A separate, event-wide **`challenge-1-iac/bootstrap/`** stack (applied once, before any team)
-  provisions: a Route53 zone lookup for `aikidoctf.com`, a wildcard ACM cert for
-  `*.challenge1.aikidoctf.com`, and one shared ALB (`flawed-blueprint-alb`) with an HTTPS listener.
+  provisions: a Route53 zone lookup for `aikidolabs.net`, a wildcard ACM cert for
+  `*.challenge1.aikidolabs.net`, and one shared ALB (`flawed-blueprint-alb`) with an HTTPS listener.
 - Each team's own `main.tf` looks all of that up read-only (`data "aws_lb"`, `data
   "aws_lb_listener"`, `data "aws_route53_zone"`, `data "aws_security_group"`) and adds only:
   - its own target group (`aws_lb_target_group.app`), which the ECS service registers into via its
     `load_balancer` block, so ECS automatically keeps the target group pointed at whichever task
     is currently running, even across task replacements;
   - its own host-header listener rule (`aws_lb_listener_rule.app`) matching
-    `<team_id>.challenge1.aikidoctf.com`, with no `priority` set. AWS assigns the next free
+    `<team_id>.challenge1.aikidolabs.net`, with no `priority` set. AWS assigns the next free
     priority on the shared listener at apply time, so independent teams' applies never collide;
   - its own Route53 alias record (`aws_route53_record.app`) pointing that hostname at the shared
     ALB.
@@ -119,7 +119,7 @@ shared-vs-per-team split in more detail.
 ## The full attack chain, end to end
 
 ```
-1. Player is handed https://<team_id>.challenge1.aikidoctf.com/  (the entrypoint_url output)
+1. Player is handed https://<team_id>.challenge1.aikidolabs.net/  (the entrypoint_url output)
 2. Player requests it, and either views the rendered page or its HTML source
 3. The HTML comment reveals: https://aikido-ctf-blueprint-backup-<team_id>.s3.us-west-2.amazonaws.com
 4. Player runs: aws s3 ls s3://aikido-ctf-blueprint-backup-<team_id> --no-sign-request
@@ -136,7 +136,7 @@ read), which is exactly what a "Low" difficulty, 20-minute challenge calls for.
 
 | File | Role |
 |---|---|
-| `challenge-1-iac/bootstrap/variables.tf`, `challenge-1-iac/bootstrap/main.tf` | Shared, event-wide: Route53 zone lookup, wildcard ACM cert for `*.challenge1.aikidoctf.com`, shared ALB. Applied once |
+| `challenge-1-iac/bootstrap/variables.tf`, `challenge-1-iac/bootstrap/main.tf` | Shared, event-wide: Route53 zone lookup, wildcard ACM cert for `*.challenge1.aikidolabs.net`, shared ALB. Applied once |
 | `challenge-1-iac/variables.tf` | `aws_region` (fixed to `us-west-2`), `team_id`, `zone_name`, `ctf_domain` |
 | `challenge-1-iac/main.tf` | Bucket + policy (the vuln), flag generation, ECS/Fargate app hosting, ALB target group/listener rule, DNS record |
 | `challenge-1-iac/app/app.py` | The entry-point Flask app that leaks the bucket URL |

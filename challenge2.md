@@ -23,8 +23,8 @@ cd challenge-2-iac
 terraform workspace new team007   # or `select` if it already exists
 terraform apply \
   -var="team_id=team007" \
-  -var="zone_name=aikidoctf.com" \
-  -var="ctf_domain=challenge2.aikidoctf.com"
+  -var="zone_name=aikidolabs.net" \
+  -var="ctf_domain=challenge2.aikidolabs.net"
 ```
 
 Each invocation creates a fully independent Forgejo instance, EFS volume, EC2 CI runner, IAM OIDC
@@ -106,7 +106,7 @@ leaves open.
 ### 4. IAM OIDC trust: correctly scoped, and deliberately not the bug
 
 - `aws_iam_openid_connect_provider.forgejo` registers Forgejo's own Actions issuer
-  (`https://<team_id>.challenge2.aikidoctf.com/api/actions`) as a trusted OIDC provider. AWS
+  (`https://<team_id>.challenge2.aikidolabs.net/api/actions`) as a trusted OIDC provider. AWS
   validates this by connecting to the issuer's discovery endpoint at creation time, which is why
   this resource has to wait (`null_resource.wait_for_forgejo_healthy`, polling the ALB target
   group's health) until Forgejo is actually up behind the ALB, not just until the ECS service
@@ -151,17 +151,17 @@ leaves open.
 ### 6. Routing: the shared ALB, same pattern as Challenge 1
 
 A separate, event-wide **`challenge-2-iac/bootstrap/`** stack (applied once, before any team)
-provisions: a Route53 zone lookup for `aikidoctf.com`, a wildcard ACM cert for
-`*.challenge2.aikidoctf.com`, one shared ALB (`shadow-pipeline-alb`), and the shared ECR repo for
+provisions: a Route53 zone lookup for `aikidolabs.net`, a wildcard ACM cert for
+`*.challenge2.aikidolabs.net`, one shared ALB (`shadow-pipeline-alb`), and the shared ECR repo for
 the Forgejo image. Each team's own `main.tf` looks all of that up read-only and adds only its own
-target group, host-header listener rule (`<team_id>.challenge2.aikidoctf.com`, no `priority` set
+target group, host-header listener rule (`<team_id>.challenge2.aikidolabs.net`, no `priority` set
 so independent teams' applies never collide), and Route53 alias record. Same reasoning as
 Challenge 1's `bootstrap/`, described in more detail in `challenge1.md`.
 
 ## The full attack chain, end to end
 
 ```
-1. Player logs into https://<team_id>.challenge2.aikidoctf.com as `player` (given credentials)
+1. Player logs into https://<team_id>.challenge2.aikidolabs.net as `player` (given credentials)
 2. Player clones team-<team_id>/infra, reads .forgejo/workflows/deploy.yml on main
 3. Player pushes to main -> rejected, branch protection blocks it
 4. Player pushes the same content to a branch matching deploy/* (e.g. deploy/pwn) -> succeeds
@@ -182,7 +182,7 @@ to teach.
 
 | File | Role |
 |---|---|
-| `challenge-2-iac/bootstrap/main.tf`, `challenge-2-iac/bootstrap/variables.tf` | Shared, event-wide: Route53 zone lookup, wildcard ACM cert for `*.challenge2.aikidoctf.com`, shared ALB, shared ECR repo. Applied once |
+| `challenge-2-iac/bootstrap/main.tf`, `challenge-2-iac/bootstrap/variables.tf` | Shared, event-wide: Route53 zone lookup, wildcard ACM cert for `*.challenge2.aikidolabs.net`, shared ALB, shared ECR repo. Applied once |
 | `challenge-2-iac/variables.tf` | `aws_region`, `team_id`, `zone_name`, `ctf_domain`, `runner_instance_type` |
 | `challenge-2-iac/main.tf` | Per-team stack: Forgejo (ECS Fargate + EFS), CI runner (EC2), IAM OIDC provider + deploy role, the flag secret, ALB routing |
 | `challenge-2-iac/forgejo/Dockerfile` | Custom Forgejo image build |

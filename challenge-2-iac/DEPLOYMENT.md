@@ -9,9 +9,9 @@ see `docs/walkthrough.md`; for image build-only instructions see `forgejo/README
   (`us-west-2`) as Challenge 1.
 - Docker Desktop running (needed once, to build the Forgejo image).
 - Terraform >= 1.0.
-- **A domain you control.** This deployment uses `aikidoctf.com`, registered directly through
+- **A domain you control.** This deployment uses `aikidolabs.net`, registered directly through
   Route53 Registrar in this same AWS account (so its hosted zone already exists — no delegation
-  step needed). Every team's Forgejo instance is published at `<team_id>.challenge2.aikidoctf.com`,
+  step needed). Every team's Forgejo instance is published at `<team_id>.challenge2.aikidolabs.net`,
   and AWS IAM's OIDC federation needs a stable, ongoing-reachable public HTTPS hostname for each
   team — this is not optional infrastructure, it's load-bearing for the challenge's core mechanic.
 
@@ -19,17 +19,17 @@ see `docs/walkthrough.md`; for image build-only instructions see `forgejo/README
 
 Two variables control this, kept separate on purpose:
 
-- `zone_name` — the Route53 zone that **actually exists** (`aikidoctf.com`). Used only to look up
+- `zone_name` — the Route53 zone that **actually exists** (`aikidolabs.net`). Used only to look up
   the zone via `data "aws_route53_zone"`.
 - `ctf_domain` — the challenge-level subdomain the wildcard cert and every per-team record are
-  scoped to (`challenge2.aikidoctf.com`). A wildcard cert for `*.aikidoctf.com` would **not** cover
-  `<team_id>.challenge2.aikidoctf.com` (that's two levels down), so `ctf_domain` must be one level
+  scoped to (`challenge2.aikidolabs.net`). A wildcard cert for `*.aikidolabs.net` would **not** cover
+  `<team_id>.challenge2.aikidolabs.net` (that's two levels down), so `ctf_domain` must be one level
   below the apex.
 
 **Default path — the zone already exists (this deployment's actual setup):** set
 `create_route53_zone = false` (the default) and just pass both variables. No delegation, no NS
-records, nothing to wait on — records for `challenge2.aikidoctf.com` land straight in the
-`aikidoctf.com` zone.
+records, nothing to wait on — records for `challenge2.aikidolabs.net` land straight in the
+`aikidolabs.net` zone.
 
 **Alternative, if you're deploying against a domain whose zone doesn't exist yet in this account:**
 set `-var="create_route53_zone=true"` and `zone_name` = the new zone's name. After apply, run
@@ -42,11 +42,11 @@ elsewhere). DNS propagation can take minutes to a few hours — do this early if
 ```bash
 cd challenge-2-iac/bootstrap
 terraform init
-terraform apply -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
+terraform apply -var="zone_name=aikidolabs.net" -var="ctf_domain=challenge2.aikidolabs.net"
 ```
 
 This creates: the Route53 zone (only if `create_route53_zone=true`), a wildcard ACM cert
-(`*.challenge2.aikidoctf.com`, DNS-validated automatically since the zone is in this account), a
+(`*.challenge2.aikidolabs.net`, DNS-validated automatically since the zone is in this account), a
 shared ALB with an HTTPS listener, and the shared ECR repo for the Forgejo image. Takes a few
 minutes — ACM DNS validation and the ALB provisioning are the slow parts.
 
@@ -71,7 +71,7 @@ since the ECS task definition expects amd64 and there's no `runtime_platform` ov
 ```bash
 cd challenge-2-iac
 terraform init
-terraform apply -var="team_id=<team>" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
+terraform apply -var="team_id=<team>" -var="zone_name=aikidolabs.net" -var="ctf_domain=challenge2.aikidolabs.net"
 ```
 
 This takes longer than Challenge 1's apply — an EFS mount target and the ALB listener rule/target
@@ -90,7 +90,7 @@ terraform output player_password     # sensitive - terraform output -raw player_
 
 ## 5. Verify before handing off to a team
 
-1. `curl -sI https://<team_id>.challenge2.aikidoctf.com/` — expect a `200` once DNS has propagated
+1. `curl -sI https://<team_id>.challenge2.aikidolabs.net/` — expect a `200` once DNS has propagated
    and the ALB target is healthy.
 2. Log into Forgejo with the `player` credentials, confirm the one `infra` repo is visible with
    Write access.
@@ -124,14 +124,14 @@ stale state lock left by a prior interrupted run). Per-team, by hand:
 ```bash
 cd challenge-2-iac
 terraform workspace select <team_id>
-terraform destroy -var="team_id=<team>" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
+terraform destroy -var="team_id=<team>" -var="zone_name=aikidolabs.net" -var="ctf_domain=challenge2.aikidolabs.net"
 ```
 
 Whole event, once all teams are torn down:
 
 ```bash
 cd challenge-2-iac/bootstrap
-terraform destroy -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
+terraform destroy -var="zone_name=aikidolabs.net" -var="ctf_domain=challenge2.aikidolabs.net"
 ```
 
 (Only do this once no per-team stack still references the shared ALB/zone/ECR repo — destroying

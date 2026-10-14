@@ -8,14 +8,14 @@
 
 ## 1. Log In and Enumerate
 
-Navigate to the team's Forgejo URL (`https://<team_id>.challenge2.aikidoctf.com`) and log in with
+Navigate to the team's Forgejo URL (`https://<team_id>.challenge2.aikidolabs.net`) and log in with
 the provided `player` credentials. The account has Write access to exactly one repository:
 `<org>/infra`.
 
 Clone it:
 
 ```bash
-git clone https://player:<password>@<team_id>.challenge2.aikidoctf.com/team-<team_id>/infra.git
+git clone https://player:<password>@<team_id>.challenge2.aikidolabs.net/team-<team_id>/infra.git
 cd infra
 ```
 
@@ -85,8 +85,8 @@ a team:
 
 ```bash
 cd challenge-2-iac
-terraform destroy -var="team_id=<team_id>" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
-terraform apply   -var="team_id=<team_id>" -var="zone_name=aikidoctf.com" -var="ctf_domain=challenge2.aikidoctf.com"
+terraform destroy -var="team_id=<team_id>" -var="zone_name=aikidolabs.net" -var="ctf_domain=challenge2.aikidolabs.net"
+terraform apply   -var="team_id=<team_id>" -var="zone_name=aikidolabs.net" -var="ctf_domain=challenge2.aikidolabs.net"
 ```
 
 - The flag is **not** per-team anymore (one shared flag per challenge, generated once by

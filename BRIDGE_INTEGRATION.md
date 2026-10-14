@@ -28,14 +28,15 @@ your run by that ID. Invalid input fails the run before anything touches AWS.
 
 ## What the player gets
 
-- Challenge 1: `https://<team_id>.challenge1.aikidoctf.com`
-- Challenge 2: `https://<team_id>.challenge2.aikidoctf.com`, username `player`, and the event-wide
+- Challenge 1: `https://<team_id>.challenge1.aikidolabs.net`
+- Challenge 2: `https://<team_id>.challenge2.aikidolabs.net`, username `player`, and the event-wide
   password we give you for the CTFd challenge text (the `CTF_PLAYER_PASSWORD` repo variable).
 - Flags are shared per challenge and scored by the sponsor; the bridge never needs them.
 
-Environments **expire after 1 hour**, enforced by a reaper every 5 minutes. There is no
-self-service destroy and no extension. Re-dispatching a live `team_id` is an idempotent re-apply,
-not a reset. Tell players the 60-minute limit up front.
+Environments **expire after roughly 1-2 hours** (a reaper checks hourly and tears down anything
+past the 1-hour TTL, so a team can live up to ~2 hours worst case). There is no self-service
+destroy and no extension. Re-dispatching a live `team_id` is an idempotent re-apply, not a reset.
+Tell players to expect their environment to last an hour or so, not a strict 60-minute cutoff.
 
 ## What the bridge must do
 
