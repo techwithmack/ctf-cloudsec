@@ -28,8 +28,8 @@ provider "aws" {
 }
 
 # 1. Route53 hosted zone. zone_name is the apex domain that actually exists in
-# Route53 (e.g. "aikidoctf.com"); ctf_domain (used below for the cert/ALB) may be
-# that same apex or a subdomain of it (e.g. "challenge2.aikidoctf.com") - either
+# Route53 (e.g. "aikidolabs.net"); ctf_domain (used below for the cert/ALB) may be
+# that same apex or a subdomain of it (e.g. "challenge2.aikidolabs.net") - either
 # way, records for ctf_domain get created inside this zone.
 resource "aws_route53_zone" "ctf" {
   count = var.create_route53_zone ? 1 : 0

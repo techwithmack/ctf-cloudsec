@@ -125,7 +125,14 @@ jobs:
 
   reap:
     needs: list-expired
-    if: needs.list-expired.outputs.teams != '[]'
+    # always() + an explicit result check, not a bare output comparison: an
+    # `if:` with no status function implicitly gets `success()`, which checks
+    # EVERY upstream job in the chain, not just direct `needs`. On a schedule
+    # trigger `authorize` is skipped (by design), so success() was false and
+    # this job was silently skipped on every scheduled run - found live
+    # 2026-10-16: list-expired reported a 45h-old team as expired, and reap
+    # never ran. Manual dispatch worked only because authorize then succeeds.
+    if: always() && needs.list-expired.result == 'success' && needs.list-expired.outputs.teams != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
