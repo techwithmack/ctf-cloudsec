@@ -34,7 +34,7 @@ jobs:
     # /Cloud Village's self-service bridge identity, i.e. exactly the actor
     # this guard exists to keep out of this workflow. "has repo access" and
     # "is an organizer allowed to destroy teams" are not the same set.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Verify dispatch actor is an authorized organizer
         env:
@@ -50,7 +50,7 @@ jobs:
 
   prepare:
     needs: authorize
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       teams: ${{ steps.parse.outputs.teams }}
     steps:
@@ -83,7 +83,7 @@ jobs:
   destroy:
     needs: prepare
     if: needs.prepare.outputs.teams != '[]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: destroy-approval
     permissions:

@@ -59,7 +59,7 @@ jobs:
     # its PAT can dispatch provision-teams.yml) but is Jayesh/Cloud Village's
     # bridge identity, exactly the actor this guard exists to keep out.
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Verify manual-dispatch actor is an authorized organizer
         env:
@@ -79,7 +79,7 @@ jobs:
     # that case, and also when authorize actually succeeded. Any other result
     # (authorize failed a manual dispatch) blocks this and everything after.
     if: always() && (needs.authorize.result == 'success' || needs.authorize.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       teams: ${{ steps.list.outputs.teams }}
@@ -133,7 +133,7 @@ jobs:
     # 2026-10-16: list-expired reported a 45h-old team as expired, and reap
     # never ran. Manual dispatch worked only because authorize then succeeds.
     if: always() && needs.list-expired.result == 'success' && needs.list-expired.outputs.teams != '[]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       id-token: write # required to fetch the OIDC token for AWS role assumption
