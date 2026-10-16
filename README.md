@@ -43,6 +43,9 @@ Wiring an external self-service bridge (CTFd auth → GitHub Actions → player)
 provisioning? See **[BRIDGE_INTEGRATION.md](BRIDGE_INTEGRATION.md)** for the contract and
 what the bridge needs to do on its side.
 
+How Challenge 2 player passwords work (per-team random, same as DEF CON), plus who can reach them
+and the access audit: **[PLAYER_PASSWORDS.md](PLAYER_PASSWORDS.md)**, **[ACCESS_NOTES.md](ACCESS_NOTES.md)**.
+
 Quick reference for anyone who just needs the commands:
 ```bash
 ./scripts/add-team.sh <team_id>       # apply both challenges for one team, print URL/creds/flag

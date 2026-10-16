@@ -73,7 +73,10 @@ Then:
 Once this is done, anyone with write access to the repo can provision/destroy teams from the
 Actions tab without touching AWS credentials directly.
 
-### 3. `CTF_PLAYER_PASSWORD` repo variable (only for self-service provisioning)
+### 3. `CTF_PLAYER_PASSWORD` repo variable (optional shared-password override; currently UNSET)
+
+**Leave this unset to keep per-team random passwords (the DEF CON behavior, our decision as of
+2026-10-16).** Full explanation, history and live verification: **[PLAYER_PASSWORDS.md](PLAYER_PASSWORDS.md)**.
 
 Optional. A self-service bridge (Cloud Village's CTFd → GitHub Actions Lambda) dispatches
 `provision-teams.yml` but never reads its logs (flag/password values are masked there on purpose),
@@ -245,7 +248,8 @@ More than 20 `team_ids` were sent in a single dispatch. This is a deliberate cap
 the cap if a legitimate use case needs it regularly.
 
 **Every team's Challenge 2 password is the same.**
-Intentional when `CTF_PLAYER_PASSWORD` is set. See
+Only expected if `CTF_PLAYER_PASSWORD` is set (it should normally be unset; check
+`gh variable list`). See
 [CTF_PLAYER_PASSWORD](#3-ctf_player_password-repo-variable-only-for-self-service-provisioning).
 
 **I ran provision twice for the same `team_id`. Did that break anything?**

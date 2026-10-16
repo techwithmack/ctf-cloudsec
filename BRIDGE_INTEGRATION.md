@@ -29,8 +29,10 @@ your run by that ID. Invalid input fails the run before anything touches AWS.
 ## What the player gets
 
 - Challenge 1: `https://<team_id>.challenge1.aikidolabs.net`
-- Challenge 2: `https://<team_id>.challenge2.aikidolabs.net`, username `player`, and the event-wide
-  password we give you for the CTFd challenge text (the `CTF_PLAYER_PASSWORD` repo variable).
+- Challenge 2: `https://<team_id>.challenge2.aikidolabs.net`, username `player`. Each team's
+  password is random and per-team (as at DEF CON) and is masked in the run logs, so the bridge
+  cannot see it. How players receive it is tracked in `PLAYER_PASSWORDS.md` (optional shared
+  password override: `CTF_PLAYER_PASSWORD`, currently unset).
 - Flags are shared per challenge and scored by the sponsor; the bridge never needs them.
 
 Environments **expire after roughly 1-2 hours** (a reaper checks hourly and tears down anything
